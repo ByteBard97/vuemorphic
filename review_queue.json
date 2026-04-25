@@ -1,0 +1,86 @@
+[
+  {
+    "node_id": "modules__renderer_webgl__src__event_source__EventSource___listens",
+    "tier": "sonnet",
+    "attempts": 0,
+    "last_error": "claude exited 1: You're out of extra usage \u00b7 resets Apr 23 at 3pm (America/New_York)",
+    "source_text_preview": "private _listens(type: string): boolean {\n    return (\n      (this._listeners[type] && this._listeners[type].length > 0) || (this._onceListeners[type] && this._onceListeners[type].length > 0)\n    )\n  }"
+  },
+  {
+    "node_id": "modules__renderer_webgl__src__event_source__addEventListener",
+    "tier": "sonnet",
+    "attempts": 0,
+    "last_error": "claude exited 1: You're out of extra usage \u00b7 resets Apr 23 at 3pm (America/New_York)",
+    "source_text_preview": "function addEventListener(type: string, listener: Listener, registry: ListenerRegistry) {\n  registry[type] = registry[type] || []\n  if (registry[type].indexOf(listener) < 0) {\n    // Does not exist\n    registry[type].push(listener)\n  }\n}"
+  },
+  {
+    "node_id": "modules__renderer_webgl__src__event_source__removeEventListener",
+    "tier": "sonnet",
+    "attempts": 0,
+    "last_error": "claude exited 1: You're out of extra usage \u00b7 resets Apr 23 at 3pm (America/New_York)",
+    "source_text_preview": "function removeEventListener(type: string, listener: Listener, registry: ListenerRegistry) {\n  if (registry[type]) {\n    const index = registry[type].indexOf(listener)\n    if (index >= 0) {\n      registry[type].splice(index, 1)\n    }\n  }\n}"
+  },
+  {
+    "node_id": "modules__renderer_webgl__src__renderer__Renderer__setStyle",
+    "tier": "sonnet",
+    "attempts": 0,
+    "last_error": "claude exited 1: You're out of extra usage \u00b7 resets Apr 23 at 3pm (America/New_York)",
+    "source_text_preview": "setStyle(style: GraphStyleSpecification) {\n    this._style = parseGraphStyle(style)\n    const layer = this._deck.props.layers[0]\n    if (layer) {\n      const newLayer = layer.clone({\n        graphStyle: this._style,\n      })\n      this._deck.setProps({\n        layers: [newLayer],\n      })\n    }\n  }"
+  },
+  {
+    "node_id": "modules__core__src__routing__BundlingSettings__BundlingSettings__toJSON",
+    "tier": "sonnet",
+    "attempts": 0,
+    "last_error": "claude exited 1: You're out of extra usage \u00b7 resets Apr 23 at 3pm (America/New_York)",
+    "source_text_preview": "toJSON(): BundlingSettingsJSON {\n    const ret: BundlingSettingsJSON = {}\n    if (this.capacityOverflowCoefficient != BundlingSettings.DefaultCapacityOverflowCoefficientMultiplier)\n      ret.capacityOverflowCoefficient = this.capacityOverflowCoefficient\n    if (this.RotateBundles) ret.RotateBundles "
+  },
+  {
+    "node_id": "modules__core__src__routing__interactiveObstacleCalculator__InteractiveObstacleCalculator__IsEmpty",
+    "tier": "sonnet",
+    "attempts": 0,
+    "last_error": "claude exited 1: You're out of extra usage \u00b7 resets Apr 23 at 3pm (America/New_York)",
+    "source_text_preview": "IsEmpty(): boolean {\n    return this.TightObstacles == null || this.TightObstacles.size === 0\n  }"
+  },
+  {
+    "node_id": "modules__core__src__structs__genericBinaryHeapPriorityQueue__GenericBinaryHeapPriorityQueue__ContainsElement",
+    "tier": "sonnet",
+    "attempts": 0,
+    "last_error": "claude exited 1: You're out of extra usage \u00b7 resets Apr 23 at 3pm (America/New_York)",
+    "source_text_preview": "ContainsElement(key: T): boolean {\n    return this.cache.has(key)\n  }"
+  },
+  {
+    "node_id": "modules__core__src__structs__genericBinaryHeapPriorityQueue__GenericBinaryHeapPriorityQueue__IsEmpty",
+    "tier": "sonnet",
+    "attempts": 0,
+    "last_error": "claude exited 1: You're out of extra usage \u00b7 resets Apr 23 at 3pm (America/New_York)",
+    "source_text_preview": "IsEmpty() {\n    return this.heapSize === 0\n  }"
+  },
+  {
+    "node_id": "modules__core__src__structs__genericBinaryHeapPriorityQueue__GenericBinaryHeapPriorityQueue__GetEnumerator",
+    "tier": "sonnet",
+    "attempts": 0,
+    "last_error": "claude exited 1: You're out of extra usage \u00b7 resets Apr 23 at 3pm (America/New_York)",
+    "source_text_preview": "*GetEnumerator(): IterableIterator<T> {\n    for (let i = 1; i <= this.heapSize; i++) {\n      yield this.A[i].v\n    }\n  }"
+  },
+  {
+    "node_id": "modules__core__src__structs__genericBinaryHeapPriorityQueue__GenericBinaryHeapPriorityQueue__Peek",
+    "tier": "sonnet",
+    "attempts": 0,
+    "last_error": "claude exited 1: You're out of extra usage \u00b7 resets Apr 23 at 3pm (America/New_York)",
+    "source_text_preview": "public Peek(t: {priority: number}): T {\n    if (this.count === 0) {\n      t.priority = 0\n      return\n    }\n\n    t.priority = this.A[1].priority\n    return this.A[1].v\n  }"
+  },
+  {
+    "node_id": "modules__core__src__structs__genericBinaryHeapPriorityQueue__GenericBinaryHeapPriorityQueue__toString",
+    "tier": "sonnet",
+    "attempts": 0,
+    "last_error": "claude exited 1: You're out of extra usage \u00b7 resets Apr 23 at 3pm (America/New_York)",
+    "source_text_preview": "toString(): string {\n    const sb: StringBuilder = new StringBuilder()\n    for (const i of this.A) {\n      sb.Append(i + ',')\n    }\n\n    return sb.ToString()\n  }"
+  },
+  {
+    "node_id": "modules__core__src__structs__genericHeapElement__GenericHeapElement__constructor",
+    "tier": "sonnet",
+    "attempts": 0,
+    "last_error": "claude exited 1: You're out of extra usage \u00b7 resets Apr 23 at 3pm (America/New_York)",
+    "source_text_preview": "constructor(index: number, priority: number, v: T) {\n    this.indexToA = index\n    this.priority = priority\n    this.v = v\n  }"
+  }
+]

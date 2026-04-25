@@ -1,0 +1,291 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom scrollbar — terminal aesthetic */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #0c0e10; border-left: 1px dashed #57423b; }
+::-webkit-scrollbar-thumb { background: #282a2c; }
+::-webkit-scrollbar-thumb:hover { background: #37393b; }
+
+/* ── rust-seam — single class for all jagged vertical border strips ─────── */
+/* Apply to any dedicated thin strip element (no text content).              */
+/* Color + size come from Tailwind utilities on the same element.            */
+/* The #rust-edge SVG filter (index.html) displaces pixels to produce        */
+/* organically imperfect, mottled-metal edges.                               */
+.rust-seam {
+  filter: url(#rust-edge);
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+/* Sidebar right-border overlay — absolutely positioned over the 1px border  */
+.rust-seam-overlay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -2px;
+  width: 5px;
+  z-index: 50;
+  background: linear-gradient(to right,
+    transparent 0px,
+    rgba(45, 47, 49, 0.9) 1px,
+    rgba(45, 47, 49, 0.9) 2px,
+    transparent 3px
+  );
+}
+
+/* ── Resize drag handle ──────────────────────────────────────────────────── */
+.resize-handle {
+  width: 16px;
+  cursor: col-resize;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  position: relative;
+  z-index: 10;
+  flex-shrink: 0;
+  background-image: url('/rust-texture.png');
+  background-size: 200px 200px;
+  background-position: 50% 0;
+}
+
+/* Dark mask — obscures texture at rest, lifts on hover */
+.resize-handle-dashes {
+  flex: 1;
+  background: rgba(15, 12, 10, 0.86);
+  transition: background 220ms ease;
+}
+
+/* Accent stripe — width + colour set by Tailwind, filter via .rust-seam */
+.resize-handle-accent {
+  width: 3px;
+  transition: background 300ms, box-shadow 300ms;
+}
+
+.resize-handle:hover .resize-handle-dashes {
+  background: rgba(40, 20, 8, 0.38);
+}
+
+.resize-handle:hover .resize-handle-accent {
+  box-shadow: -5px 0 14px rgba(255, 181, 157, 0.40);
+}
+
+/* Pulse animation for status dots */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+.pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
+
+/* ── Grungy CTA button — hammered, oxidised, paint-chipped metal ──────── */
+.grungy-cta {
+  position: relative;
+  overflow: hidden;
+  /*
+   * Three stacked gradients:
+   * 1. blotchy radial dark stain top-left (heavy oxidation)
+   * 2. radial bright patch bottom-right (bare scuffed metal)
+   * 3. diagonal base colour
+   */
+  background:
+    radial-gradient(ellipse 60% 80% at 18% 30%,  #5a1e0488 0%, transparent 65%),
+    radial-gradient(ellipse 50% 60% at 85% 75%,  #e8903888 0%, transparent 60%),
+    radial-gradient(ellipse 40% 50% at 50% 50%,  #00000033 0%, transparent 70%),
+    linear-gradient(137deg, #b84a10 0%, #8c3208 25%, #cc6828 50%, #6e2006 70%, #aa4418 100%);
+
+  /* Paint-chip edges: bright top-left scrape, deep bottom-right shadow */
+  box-shadow:
+    inset  0   1px 0   rgba(255, 210, 130, 0.30),
+    inset  1px 0   0   rgba(255, 180,  80, 0.15),
+    inset  0  -3px 0   rgba(0, 0, 0, 0.70),
+    inset -2px 0   0   rgba(0, 0, 0, 0.50),
+    inset  0   0  12px rgba(0, 0, 0, 0.40),
+    0 3px 10px rgba(0, 0, 0, 0.65);
+
+  color: #3d1200;
+  text-shadow: 0 1px 0 rgba(255,160,60,0.15);
+  transition: filter 120ms, color 80ms, text-shadow 80ms;
+}
+
+/* Rust texture at high opacity — coarse grain dominates */
+.grungy-cta::before {
+  content: '';
+  position: absolute;
+  inset: -4px;                /* bleed past edge so tile seams aren't on the rim */
+  background-image: url('/rust-texture.png');
+  background-size: 160px 160px;
+  background-position: 37px 22px;
+  opacity: 0.45;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+
+/* Layered scratches: coarse horizontal + fine diagonal */
+.grungy-cta::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    repeating-linear-gradient(
+      88deg,
+      transparent          0px,
+      transparent          4px,
+      rgba(0,0,0,0.10)     4px,
+      rgba(0,0,0,0.10)     5px,
+      transparent          5px,
+      transparent          9px,
+      rgba(255,255,255,0.03) 9px,
+      rgba(255,255,255,0.03) 10px
+    ),
+    repeating-linear-gradient(
+      174deg,
+      transparent             0px,
+      transparent             8px,
+      rgba(0,0,0,0.07)        8px,
+      rgba(0,0,0,0.07)        9px
+    );
+  pointer-events: none;
+  mix-blend-mode: overlay;
+}
+
+/* Bad-circuit text flicker — irregular rhythm, no smooth pulses */
+@keyframes btn-text-flicker {
+  0%    { opacity: 1;    text-shadow: 0 0 8px rgba(255,200,80,0.9), 0 0 22px rgba(240,140,20,0.6); }
+  3%    { opacity: 0.3;  text-shadow: none; }
+  4%    { opacity: 1;    text-shadow: 0 0 8px rgba(255,200,80,0.9), 0 0 22px rgba(240,140,20,0.6); }
+  11%   { opacity: 1;    text-shadow: 0 0 8px rgba(255,200,80,0.9), 0 0 22px rgba(240,140,20,0.6); }
+  12%   { opacity: 0.6;  text-shadow: 0 0 4px rgba(255,200,80,0.4); }
+  13%   { opacity: 0.1;  text-shadow: none; }
+  14%   { opacity: 1;    text-shadow: 0 0 12px rgba(255,210,90,1.0), 0 0 28px rgba(240,150,20,0.7); }
+  15%   { opacity: 0.7;  text-shadow: 0 0 5px rgba(255,200,80,0.5); }
+  16%   { opacity: 1;    text-shadow: 0 0 8px rgba(255,200,80,0.9), 0 0 22px rgba(240,140,20,0.6); }
+  33%   { opacity: 1;    text-shadow: 0 0 8px rgba(255,200,80,0.9), 0 0 22px rgba(240,140,20,0.6); }
+  34%   { opacity: 0.2;  text-shadow: none; }
+  35%   { opacity: 0.9;  text-shadow: 0 0 6px rgba(255,200,80,0.7); }
+  36%   { opacity: 0.2;  text-shadow: none; }
+  37%   { opacity: 1;    text-shadow: 0 0 8px rgba(255,200,80,0.9), 0 0 22px rgba(240,140,20,0.6); }
+  58%   { opacity: 1;    text-shadow: 0 0 8px rgba(255,200,80,0.9), 0 0 22px rgba(240,140,20,0.6); }
+  59%   { opacity: 0.5;  text-shadow: 0 0 3px rgba(255,200,80,0.3); }
+  60%   { opacity: 1;    text-shadow: 0 0 14px rgba(255,215,90,1.0), 0 0 30px rgba(240,150,20,0.8); }
+  79%   { opacity: 1;    text-shadow: 0 0 8px rgba(255,200,80,0.9), 0 0 22px rgba(240,140,20,0.6); }
+  80%   { opacity: 0.0;  text-shadow: none; }
+  81%   { opacity: 0.8;  text-shadow: 0 0 5px rgba(255,200,80,0.6); }
+  82%   { opacity: 0.0;  text-shadow: none; }
+  83%   { opacity: 1;    text-shadow: 0 0 8px rgba(255,200,80,0.9), 0 0 22px rgba(240,140,20,0.6); }
+  100%  { opacity: 1;    text-shadow: 0 0 8px rgba(255,200,80,0.9), 0 0 22px rgba(240,140,20,0.6); }
+}
+
+.grungy-cta:not(:disabled):hover {
+  filter: brightness(1.10) contrast(1.08) saturate(1.1);
+  color: #ffda85;
+  animation: btn-text-flicker 2.3s steps(1, end) infinite;
+}
+
+.grungy-cta:not(:disabled):active {
+  filter: brightness(0.82) contrast(1.12);
+  box-shadow:
+    inset 0  3px 8px rgba(0,0,0,0.75),
+    inset 0 -1px 0   rgba(255,200,100,0.08),
+    0 1px 3px rgba(0,0,0,0.5);
+}
+
+/* ── Neon logo — ramshackle glass tube, uneven burn ────────────────────── */
+
+/* Outer wrap: whole-element stutter (power fluctuation) */
+@keyframes neon-flicker {
+  0%    { opacity: 1.00; }
+  4%    { opacity: 1.00; }
+  4.5%  { opacity: 0.60; }
+  5%    { opacity: 1.00; }
+  5.5%  { opacity: 0.80; }
+  6%    { opacity: 1.00; }
+  28%   { opacity: 1.00; }
+  28.2% { opacity: 0.55; }
+  28.4% { opacity: 1.00; }
+  55%   { opacity: 1.00; }
+  55.3% { opacity: 0.40; }
+  55.5% { opacity: 0.85; }
+  55.7% { opacity: 0.40; }
+  56%   { opacity: 1.00; }
+  80%   { opacity: 1.00; }
+  80.3% { opacity: 0.72; }
+  80.7% { opacity: 1.00; }
+  100%  { opacity: 1.00; }
+}
+
+/* Inner SVG: glow pressure oscillates, biased low-left (one end colder) */
+@keyframes neon-breathe {
+  0%   {
+    filter:
+      drop-shadow(0 0 1px #fff0d0)
+      drop-shadow(-2px 1px 8px #ffc84088)
+      drop-shadow(0 0 18px #d4760a)
+      drop-shadow(0 0 35px #9a3c0688);
+  }
+  35%  {
+    filter:
+      drop-shadow(0 0 3px #fffdf0)
+      drop-shadow(2px -1px 12px #ffe0a0cc)
+      drop-shadow(0 0 26px #e8921a)
+      drop-shadow(0 0 55px #c4650aaa);
+  }
+  65%  {
+    filter:
+      drop-shadow(0 0 1px #fff0d0)
+      drop-shadow(-3px 2px 6px #ffb04055)
+      drop-shadow(0 0 14px #c06008)
+      drop-shadow(0 0 28px #8a300466);
+  }
+  100% {
+    filter:
+      drop-shadow(0 0 1px #fff0d0)
+      drop-shadow(-2px 1px 8px #ffc84088)
+      drop-shadow(0 0 18px #d4760a)
+      drop-shadow(0 0 35px #9a3c0688);
+  }
+}
+
+/* Scanlines drawn over the logo panel */
+@keyframes scanline-drift {
+  from { background-position: 0 0; }
+  to   { background-position: 0 100px; }
+}
+
+.neon-logo-wrap {
+  /* opacity driven by useNeonFlicker composable — no CSS animation here */
+  position: relative;
+  transition: opacity 40ms linear;
+}
+
+/* scanline + grain overlay */
+.neon-logo-wrap::after {
+  content: '';
+  position: absolute;
+  inset: -16px -20px;          /* bleed beyond the image edge */
+  pointer-events: none;
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 3px,
+      rgba(0,0,0,0.18) 3px,
+      rgba(0,0,0,0.18) 4px
+    );
+  background-size: 100% 4px;
+  animation: scanline-drift 4s linear infinite;
+  mix-blend-mode: multiply;
+}
+
+.neon-logo {
+  animation: neon-breathe 4.2s ease-in-out infinite;
+  /* slightly skewed to look like it was mounted crooked */
+  transform: rotate(-0.4deg) skewX(0.3deg);
+  transform-origin: left center;
+  /* SVG fill override: warm amber tube core */
+  filter:
+    drop-shadow(0 0 1px #fff0d0)
+    drop-shadow(-2px 1px 8px #ffc84088)
+    drop-shadow(0 0 18px #d4760a)
+    drop-shadow(0 0 35px #9a3c0688);
+}

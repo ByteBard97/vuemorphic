@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg-info/
+.eggs/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+*.log
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Output
+output/
+results/
+scratch/
+
+# Corpora — checked out locally, never committed
+corpora/*/
+
+# Node (for msagl-js source analysis)
+node_modules/
+
+# Git worktrees
+.worktrees/
+/.playwright-mcp
+docs/diagram-research.md
+
+# Claude / Superpowers tooling
+.claude/
+.superpowers/
+
+# Myopex UI verification output
+gui/.myopex-baseline/
+gui/.myopex-current/
+
+# Screenshots
+*.png
+*.jpg
