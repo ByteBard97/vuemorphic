@@ -1,1 +1,0 @@
-if self.lr { i < j } else { j < i }
