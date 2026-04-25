@@ -17,16 +17,20 @@ from vuemorphic.models.manifest import Manifest, TranslationTier
 
 logger = logging.getLogger(__name__)
 
-# Idioms that indicate non-trivial Rust translation effort
+# Idioms that indicate non-trivial React→Vue translation effort
 _SONNET_IDIOMS = frozenset({
-    "async_await",
-    "generator_function",
-    "class_inheritance",
-    "closure_capture",
+    "vue_reactivity_system",   # useState/useReducer → ref/reactive decisions
+    "prop_validation",          # complex PropTypes or TypeScript generics in props
+    "slots",                    # children prop / render props → named/scoped slots
+    "component_composition",    # HOC patterns, compound components
+    "css_scoping",              # CSS Modules / styled-components → scoped CSS
+    "lifecycle_hooks",          # complex useEffect chains with cleanup
 })
 
 _OPUS_IDIOMS = frozenset({
-    # none currently detected in the msagl-js corpus; reserved for future use
+    "context_to_provide_inject",  # deep context provider trees
+    "forward_ref",                 # forwardRef + useImperativeHandle → defineExpose
+    "named_children",              # render prop / slot function patterns
 })
 
 _STRUCTURAL_KINDS = frozenset({"enum", "interface", "type_alias"})
@@ -75,13 +79,13 @@ def classify_manifest_heuristic(manifest_path: Path) -> None:
     logger.info("classify_manifest_heuristic: assigned tiers to %d nodes.", changed)
 
 
-_SYSTEM = """You are a TypeScript-to-Rust translation difficulty classifier.
+_SYSTEM = """You are a React→Vue 3 translation difficulty classifier.
 
 Tiers:
-- haiku: simple getters/setters, basic type definitions, pure arithmetic, no complex idioms
-- sonnet: moderate complexity, async conversions, 1-3 complex idioms, non-trivial ownership
-- opus: complex algorithms where a wrong simplified version is plausible, cyclic references,
-        heavy generics, 4+ complex idioms, deep Rust ownership reasoning required
+- haiku: simple presentational components, no state, minimal JSX, straightforward prop drilling
+- sonnet: moderate complexity, hooks (useState/useEffect), 1-3 complex idioms, scoped CSS rewrite
+- opus: complex patterns (context, render props, forwardRef, HOCs, compound components),
+        deeply nested reactivity, 4+ complex idioms, non-trivial slot conversion required
 
 Respond with ONLY valid JSON on one line: {"tier": "haiku"|"sonnet"|"opus", "reason": "..."}"""
 
@@ -91,7 +95,7 @@ Kind: {node_kind}
 Cyclomatic complexity: {complexity}
 Idioms: {idioms}
 
-```typescript
+```jsx
 {source_text}
 ```"""
 

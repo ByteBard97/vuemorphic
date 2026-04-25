@@ -1,585 +1,939 @@
-# Idiom Dictionary — msagl-js → Rust
+# Idiom Dictionary — React→Vue 3
 
-MSAGL-specific guidance for each TypeScript pattern detected in the corpus.
-Sections are keyed exactly to idiom names used in `conversion_manifest.json`.
+Patterns for converting Claude Design React artifacts to Vue 3 SFCs.
+Sections are keyed exactly to idiom names used in the conversion manifest.
 
 ---
 
-## mutable_shared_state
+## className_to_class
 
-TypeScript class properties are mutable by default and shared freely via
-object references.
-
-**For simple field mutation on `&mut self`:**
-```rust
-// TS: this.someField = value;
-self.some_field = value;
-
-// TS: let count = 0; count++;
-let mut count = 0i32; count += 1;
+```jsx
+// React
+<div className="sidebar active">
+<div className={`btn ${isActive ? 'active' : ''}`}>
+<div className={styles.card}>
 ```
-
-Do NOT reach for `RefCell` for local variables or for `self` fields accessed
-through `&mut self`.
-
-**For graph entities that hold references to other graph entities (Node, Edge,
-GeomNode, GeomEdge, etc.):** use the **arena allocation pattern** — see
-`arena_allocation` idiom. Do NOT use `Rc<RefCell<T>>` for these; it creates
-nested borrow chains that become unmanageable. `Rc<RefCell<T>>` is only
-appropriate for non-graph shared state that genuinely needs shared ownership
-with interior mutability (e.g., a shared configuration object).
-
-**For shared non-graph state that needs `Rc<RefCell<T>>`:**
-```rust
-// TS: node.someField = value;   where node is a truly shared ref
-node.borrow_mut().some_field = value;
+```vue
+<!-- Vue -->
+<div class="sidebar active">
+<div :class="`btn ${isActive ? 'active' : ''}`">
+<!-- Or preferably with object syntax: -->
+<div :class="{ btn: true, active: isActive }">
+<!-- CSS Modules: use $style -->
+<div :class="$style.card">
 ```
 
 ---
 
-## null_undefined
+## style_binding
 
-TypeScript `null | undefined` maps to `Option<T>`. Common patterns:
-
-```rust
-// TS: if (x == null) { ... }
-if x.is_none() { ... }
-
-// TS: if (x != null) { ... }
-if let Some(val) = x { ... }
-// or: if x.is_some() { ... }
-
-// TS: x ?? defaultVal
-x.unwrap_or(default_val)
-
-// TS: x?.method()
-x.as_ref().map(|v| v.method())
-// or for Rc<RefCell<T>>:
-x.as_ref().map(|v| v.borrow().method())
-
-// TS: return null;
-return None;
-
-// TS: x!  (non-null assertion)
-x.unwrap()   // or x.expect("reason")
+```jsx
+// React
+<div style={{ color: 'red', fontSize: 14 }}>
+<div style={{ color: textColor, width: `${size}px` }}>
+```
+```vue
+<!-- Vue -->
+<div :style="{ color: 'red', fontSize: '14px' }">
+<div :style="{ color: textColor, width: `${size}px` }">
 ```
 
-For msagl graph nodes that are `null` when not yet attached:
-use `Option<Rc<RefCell<T>>>` in the skeleton types.
+Note: Vue's `:style` accepts the same camelCase keys as React's `style` prop.
+Vue auto-appends `px` to unitless numbers for pixel properties.
 
 ---
 
-## dynamic_property_access
+## event_handlers
 
-TypeScript `obj[key]` with string/number keys maps to:
+Full React→Vue event name map:
 
-```rust
-// TS: map[key]  where map is Map<string, V>
-map.get(&key)          // returns Option<&V>
-map[&key]              // panics if missing — use only when certain
+| React | Vue |
+|-------|-----|
+| `onClick` | `@click` |
+| `onChange` | `@change` / `@input` (for inputs use `@input`) |
+| `onInput` | `@input` |
+| `onSubmit` | `@submit` |
+| `onKeyDown` | `@keydown` |
+| `onKeyUp` | `@keyup` |
+| `onKeyPress` | `@keypress` |
+| `onMouseEnter` | `@mouseenter` |
+| `onMouseLeave` | `@mouseleave` |
+| `onMouseMove` | `@mousemove` |
+| `onMouseDown` | `@mousedown` |
+| `onMouseUp` | `@mouseup` |
+| `onFocus` | `@focus` |
+| `onBlur` | `@blur` |
+| `onScroll` | `@scroll` |
+| `onWheel` | `@wheel` |
+| `onDrop` | `@drop` |
+| `onDragOver` | `@dragover` |
+| `onPointerDown` | `@pointerdown` |
+| `onPointerUp` | `@pointerup` |
+| `onPointerMove` | `@pointermove` |
 
-// TS: arr[i]  where arr is an array/typed array
-arr[i as usize]        // cast index to usize
-
-// TS: obj[key] = val  for Map
-map.insert(key, val);
-
-// TS: delete obj[key]
-map.remove(&key);
+```jsx
+// React
+<button onClick={handleClick}>
+<button onClick={(e) => doThing(e)}>
+<input onChange={(e) => setValue(e.target.value)}>
+<form onSubmit={(e) => { e.preventDefault(); submit(); }}>
 ```
-
-For msagl's `idToGeomNode` and similar id-keyed maps, use `HashMap<NodeId, ...>`.
-
----
-
-## static_members
-
-TypeScript static class members translate to associated functions or
-`static` items in Rust impl blocks:
-
-```rust
-// TS: static count = 0;
-// In Rust, use a thread_local! or lazy_static for mutable statics,
-// or a const for immutable ones.
-static COUNT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
-// or for thread-local mutable state:
-thread_local! { static COUNT: RefCell<i32> = RefCell::new(0); }
-
-// TS: static create(): Foo { ... }
-// In impl block:
-pub fn create() -> Self { ... }    // called as Foo::create()
-
-// TS: static readonly PI = 3.14;
-const PI: f64 = 3.14;              // associated const
-```
-
-msagl uses static factory methods extensively (e.g., `GeomNode.mkGeom`).
-These become associated functions: `GeomNode::mk_geom(...)`.
-
----
-
-## number_as_index
-
-TypeScript allows using `number` as an array index. Rust requires `usize`:
-
-```rust
-// TS: arr[i]   where i is number
-arr[i as usize]
-
-// TS: for (let i = 0; i < arr.length; i++)
-for i in 0..arr.len() { ... }   // i is usize automatically
-
-// TS: arr.length
-arr.len()
-```
-
-When an index comes from an external computation that might be negative,
-guard first:
-```rust
-if i >= 0 { arr[i as usize] }
+```vue
+<!-- Vue -->
+<button @click="handleClick">
+<button @click="(e) => doThing(e)">
+<input @input="(e) => setValue((e.target as HTMLInputElement).value)">
+<form @submit.prevent="submit">
 ```
 
 ---
 
-## closure_capture
+## conditional_rendering
 
-TypeScript arrow functions and function expressions that capture variables:
+```jsx
+// React — short-circuit
+{isOpen && <Panel />}
 
-```rust
-// TS: const f = (x: number) => x * 2;
-let f = |x: f64| x * 2.0;
+// React — ternary
+{isOpen ? <Panel /> : <Placeholder />}
 
-// TS: arr.filter(n => n > threshold)   where threshold is captured
-arr.iter().filter(|&&n| n > threshold)
+// React — if/else via function or variable
+const content = condition ? <A /> : <B />
+```
+```vue
+<!-- Vue — v-if -->
+<Panel v-if="isOpen" />
 
-// TS: capturing mutable state:
-// const sum = 0; arr.forEach(x => sum += x);
-let mut sum = 0.0_f64;
-for x in &arr { sum += x; }
-// Rust closures can capture &mut, but not if captured by multiple closures.
-// Use a for loop when mutation is involved.
+<!-- Vue — v-if / v-else -->
+<Panel v-if="isOpen" />
+<Placeholder v-else />
 
-// TS: () => { ... }  as callback stored in struct
-// Use Box<dyn Fn()> or Box<dyn FnMut()> for heap-stored callbacks.
+<!-- Vue — v-show (keeps DOM, just hides) -->
+<Panel v-show="isOpen" />
+```
+
+Use `v-show` when the element toggles frequently; `v-if` when it's rarely shown.
+
+---
+
+## list_rendering
+
+```jsx
+// React
+{items.map((item) => (
+  <Row key={item.id} data={item} />
+))}
+
+{items.map((item, index) => (
+  <Row key={index} data={item} index={index} />
+))}
+```
+```vue
+<!-- Vue -->
+<Row
+  v-for="item in items"
+  :key="item.id"
+  :data="item"
+/>
+
+<Row
+  v-for="(item, index) in items"
+  :key="index"
+  :data="item"
+  :index="index"
+/>
+```
+
+`:key` is required on `v-for`. Use stable IDs, not array indices when possible.
+
+---
+
+## state_to_ref
+
+```jsx
+// React
+const [count, setCount] = useState(0)
+const [name, setName] = useState('')
+const [items, setItems] = useState<string[]>([])
+const [obj, setObj] = useState({ x: 0, y: 0 })
+
+// Usage
+setCount(count + 1)
+setCount(prev => prev + 1)
+setObj({ ...obj, x: 10 })
+```
+```vue
+<script setup lang="ts">
+import { ref, reactive } from 'vue'
+
+// Primitives → ref
+const count = ref(0)
+const name = ref('')
+const items = ref<string[]>([])
+
+// Objects with many fields → reactive (avoids .value everywhere)
+const obj = reactive({ x: 0, y: 0 })
+
+// Usage — ref needs .value in script
+count.value++
+count.value = count.value + 1
+obj.x = 10  // reactive: direct mutation, no spread needed
+</script>
+```
+
+Use `ref` for primitives and simple values. Use `reactive` for objects when
+you'd otherwise be spreading (`{ ...obj, key: val }`).
+
+---
+
+## effect_to_watch
+
+```jsx
+// React — run on mount
+useEffect(() => {
+  fetchData()
+}, [])
+
+// React — run when dep changes
+useEffect(() => {
+  document.title = title
+}, [title])
+
+// React — cleanup
+useEffect(() => {
+  const sub = subscribe(id)
+  return () => sub.unsubscribe()
+}, [id])
+```
+```vue
+<script setup lang="ts">
+import { watch, onMounted, onUnmounted } from 'vue'
+
+// Run on mount
+onMounted(() => {
+  fetchData()
+})
+
+// Run when dep changes (lazy — doesn't run on mount)
+watch(title, (newTitle) => {
+  document.title = newTitle
+})
+
+// Run immediately (like useEffect with dep)
+watch(title, (newTitle) => {
+  document.title = newTitle
+}, { immediate: true })
+
+// Cleanup
+let sub: Subscription | null = null
+watch(id, (newId, _oldId, onCleanup) => {
+  sub = subscribe(newId)
+  onCleanup(() => sub?.unsubscribe())
+}, { immediate: true })
+</script>
 ```
 
 ---
 
-## array_method_chain
+## memo_to_computed
 
-TypeScript array method chains (`map`, `filter`, `reduce`, etc.) become
-iterator chains in Rust:
+```jsx
+// React
+const total = useMemo(() => items.reduce((a, b) => a + b.price, 0), [items])
+const filtered = useMemo(() => list.filter(x => x.active), [list, filter])
+```
+```vue
+<script setup lang="ts">
+import { computed } from 'vue'
 
-```rust
-// TS: arr.map(x => x * 2)
-arr.iter().map(|x| x * 2.0).collect::<Vec<_>>()
-
-// TS: arr.filter(x => x > 0)
-arr.iter().filter(|&&x| x > 0.0).copied().collect::<Vec<_>>()
-
-// TS: arr.reduce((acc, x) => acc + x, 0)
-arr.iter().fold(0.0_f64, |acc, &x| acc + x)
-
-// TS: arr.find(x => x.id == target)
-arr.iter().find(|x| x.id == target)  // returns Option<&T>
-
-// TS: arr.some(x => condition)
-arr.iter().any(|x| condition)
-
-// TS: arr.every(x => condition)
-arr.iter().all(|x| condition)
-
-// TS: arr.forEach(x => { ... })
-for x in &arr { ... }
-
-// TS: arr.flatMap(x => x.children)
-arr.iter().flat_map(|x| x.children.iter()).collect::<Vec<_>>()
+const total = computed(() => items.value.reduce((a, b) => a + b.price, 0))
+const filtered = computed(() => list.value.filter(x => x.active))
+</script>
 ```
 
-For msagl geometry collections, prefer iterator adapters over intermediate Vecs.
+Vue's `computed` is automatically reactive to any refs/reactives read inside it.
+No dependency array needed.
 
 ---
 
-## map_usage
+## callback_to_function
 
-TypeScript `Map<K, V>` maps to `std::collections::HashMap<K, V>`:
+```jsx
+// React — useCallback prevents recreation on every render
+const handleClick = useCallback(() => {
+  doThing(id)
+}, [id])
 
-```rust
-// TS: new Map<string, Foo>()
-HashMap::<String, Foo>::new()
-
-// TS: map.set(key, val)
-map.insert(key, val);
-
-// TS: map.get(key)
-map.get(&key)   // returns Option<&V>
-
-// TS: map.has(key)
-map.contains_key(&key)
-
-// TS: map.delete(key)
-map.remove(&key);
-
-// TS: map.size
-map.len()
-
-// TS: for (const [k, v] of map)
-for (k, v) in &map { ... }
-
-// TS: map.keys()  /  map.values()  /  map.entries()
-map.keys()  /  map.values()  /  map.iter()
+const handleChange = useCallback((e) => {
+  setValue(e.target.value)
+}, [])
 ```
-
-msagl uses `Map<number, GeomNode>` for node lookups. In Rust, use
-`HashMap<u32, Rc<RefCell<GeomNode>>>` or index into a slotmap.
-
----
-
-## set_usage
-
-TypeScript `Set<T>` maps to `std::collections::HashSet<T>`:
-
-```rust
-// TS: new Set<string>()
-HashSet::<String>::new()
-
-// TS: set.add(val)
-set.insert(val);
-
-// TS: set.has(val)
-set.contains(&val)
-
-// TS: set.delete(val)
-set.remove(&val);
-
-// TS: set.size
-set.len()
-
-// TS: for (const v of set)
-for v in &set { ... }
-```
-
-For msagl edge/node sets, `HashSet<SlotMapKey>` works well since keys
-are `Copy` and `Hash`.
-
----
-
-## generator_function
-
-TypeScript `function*` generators yield sequences lazily. In Rust, there
-are no stable generators yet. Translate as:
-
-1. **Collect upfront** (simplest — msagl generators are typically small):
-```rust
-// TS: function* edges() { for (const e of ...) yield e; }
-// Rust: return a Vec instead
-pub fn edges(&self) -> Vec<EdgeId> {
-    self.edge_ids.iter().copied().collect()
-}
-```
-
-2. **Return an iterator** (when collection is expensive):
-```rust
-pub fn edges(&self) -> impl Iterator<Item = EdgeId> + '_ {
-    self.edge_ids.iter().copied()
-}
-```
-
-For msagl graph traversals, collect into `Vec` unless the caller is always
-iterating without storing — then returning `impl Iterator` is preferred.
-
----
-
-## class_inheritance
-
-TypeScript class inheritance (`extends`) becomes trait implementations in Rust.
-msagl uses `extends` for geometry types (e.g., `GeomGraph extends GeomNode`).
-
-```rust
-// TS: class Child extends Parent { ... }
-// Rust pattern used in this skeleton: composition + Deref, or trait objects.
-// The skeleton uses Rc<RefCell<T>> for parent data stored as a field:
-struct GeomGraph {
-    base: GeomNode,   // composition — access via self.base.field
-    // ...additional fields
-}
-```
-
-For polymorphic dispatch (calling parent methods):
-```rust
-// TS: super.method()
-self.base.method()
-
-// TS: instanceof check
-// Use match on an enum wrapping variant types, or check via a trait method.
-```
-
-msagl's type hierarchy is relatively flat — prefer composition with explicit
-`base:` fields over complex trait hierarchies in Phase B.
-
----
-
-## union_type
-
-TypeScript union types (`A | B | C`) become Rust enums:
-
-```rust
-// TS: type Shape = Circle | Rectangle | Line;
-enum Shape { Circle(Circle), Rectangle(Rectangle), Line(Line) }
-
-// TS: if (x instanceof Circle) { ... }
-if let Shape::Circle(c) = x { ... }
-// or:
-match x { Shape::Circle(c) => { ... }, _ => {} }
-```
-
-For simple `string | null` or `number | undefined`, use `Option<T>`.
-
-For msagl curve types (`ICurve` implemented by `LineSeg`, `Ellipse`, etc.),
-the skeleton uses `Box<dyn ICurve>` (trait objects) which is already handled
-in the skeleton — do not re-introduce an enum.
-
----
-
-## optional_chaining
-
-TypeScript `?.` operator chains through potentially-null values:
-
-```rust
-// TS: obj?.field
-obj.as_ref().map(|o| o.field)
-// or if field is Copy:
-obj.as_ref().map(|o| o.field).unwrap_or_default()
-
-// TS: obj?.method()
-obj.as_ref().map(|o| o.method())
-
-// TS: obj?.field?.nested
-obj.as_ref()
-   .and_then(|o| o.field.as_ref())
-   .map(|f| f.nested)
-
-// TS: arr?.length
-arr.as_ref().map(|a| a.len())
-```
-
-When the entire chain returns `Option<T>` and the caller expects it,
-use `?` inside a function returning `Option`:
-```rust
-let val = obj?.field?.nested;
-```
-
----
-
-## async_await
-
-TypeScript `async`/`await` maps to Rust async:
-
-```rust
-// TS: async function fetchData(): Promise<Data> { ... }
-async fn fetch_data() -> Data { ... }
-
-// TS: await somePromise
-some_future.await
-
-// TS: Promise.all([a, b, c])
-futures::future::join_all([a, b, c]).await
-// or tokio::join!(a, b, c)
-```
-
-Note: msagl-js has very few async functions (7 in corpus). Most are in
-rendering/IO paths. The skeleton uses `tokio` as the async runtime.
-For Phase B, keep async signatures if the skeleton has them; otherwise
-translate to sync if the TS async was a wrapper with no real awaits.
-
----
-
-## interface_trait
-
-TypeScript `interface` declarations become Rust `trait` definitions. Classes
-that `implement` an interface need a corresponding `impl Trait for Type` block.
-
-```rust
-// TS: interface ICurve { length(): number; bbox(): Rectangle; }
-pub trait ICurve {
-    fn length(&self) -> f64;
-    fn bbox(&self) -> Rectangle;
+```vue
+<script setup lang="ts">
+// Vue — plain functions are fine; <script setup> runs once per instance
+function handleClick() {
+  doThing(id.value)
 }
 
-// TS: class LineSeg implements ICurve { ... }
-pub struct LineSeg { /* fields */ }
-impl ICurve for LineSeg {
-    fn length(&self) -> f64 { /* ... */ }
-    fn bbox(&self) -> Rectangle { /* ... */ }
+function handleChange(e: Event) {
+  value.value = (e.target as HTMLInputElement).value
 }
+</script>
 ```
 
-**Returning a trait object:** when a function returns "any ICurve", use
-`Box<dyn ICurve>` (or `Arc<dyn ICurve>` if shared across threads):
-```rust
-// TS: function makeCurve(): ICurve { ... }
-fn make_curve() -> Box<dyn ICurve> { Box::new(LineSeg::new()) }
-```
-
-**Storing a trait object in a struct field:**
-```rust
-// TS: curve: ICurve
-curve: Box<dyn ICurve>
-```
-
-The msagl skeleton already defines traits for `ICurve`, `IGeom`, etc.
-Do not re-define them — implement them where the skeleton `todo!()`s are.
+`useCallback` has no Vue equivalent because functions in `<script setup>` are
+created once per component instance, not on every render.
 
 ---
 
-## abstract_class
+## context_to_provide_inject
 
-TypeScript `abstract class` becomes a Rust `trait` (for the interface
-contract) paired with a concrete base struct (for shared fields).
-
-```rust
-// TS:
-// abstract class Shape { abstract area(): number; x: number; y: number; }
-// class Circle extends Shape { area() { return Math.PI * r * r; } }
-
-// Rust approach 1 — trait + separate structs (preferred when subclasses
-// have little shared state):
-pub trait Shape {
-    fn area(&self) -> f64;
-}
-pub struct Circle { pub x: f64, pub y: f64, pub r: f64 }
-impl Shape for Circle {
-    fn area(&self) -> f64 { std::f64::consts::PI * self.r * self.r }
+```jsx
+// React — provider
+const ThemeContext = createContext(defaultTheme)
+function App() {
+  return (
+    <ThemeContext.Provider value={theme}>
+      <Child />
+    </ThemeContext.Provider>
+  )
 }
 
-// Rust approach 2 — composition (when subclasses share substantial state):
-pub struct ShapeBase { pub x: f64, pub y: f64 }
-pub struct Circle { pub base: ShapeBase, pub r: f64 }
-// access shared fields via: self.base.x
+// React — consumer
+function Child() {
+  const theme = useContext(ThemeContext)
+}
+```
+```vue
+<!-- Vue — provider component -->
+<script setup lang="ts">
+import { provide } from 'vue'
+import type { Theme } from './types'
+
+const theme = ref<Theme>(defaultTheme)
+provide('theme', theme)  // provide reactive ref so consumers see updates
+</script>
+
+<!-- Vue — consumer component -->
+<script setup lang="ts">
+import { inject } from 'vue'
+import type { Theme } from './types'
+import { Ref } from 'vue'
+
+const theme = inject<Ref<Theme>>('theme')!
+</script>
 ```
 
-**Abstract methods with a default body:** put the default in the trait with
-`fn method(&self) -> T { /* default */ }` and let implementors override.
-
-For msagl, most abstract classes define a geometric contract (area, bbox,
-tangent). Prefer the trait approach; put shared fields in a `*Base` struct
-and store it as `pub base: FooBase` in each concrete type.
+Use a Symbol key for type safety in larger projects:
+```ts
+// keys.ts
+export const themeKey = Symbol() as InjectionKey<Ref<Theme>>
+```
 
 ---
 
-## getter_setter
+## ref_to_template_ref
 
-TypeScript `get`/`set` accessor pairs become plain Rust methods. There is no
-property syntax in Rust — callers use `obj.width()` and `obj.set_width(v)`.
+```jsx
+// React
+const inputRef = useRef<HTMLInputElement>(null)
+// in JSX:
+<input ref={inputRef} />
+// usage:
+inputRef.current?.focus()
+```
+```vue
+<template>
+  <input ref="inputEl" />
+</template>
 
-```rust
-// TS: get width(): number { return this._width; }
-pub fn width(&self) -> f64 { self.width }
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
 
-// TS: set width(v: number) { this._width = v; }
-pub fn set_width(&mut self, v: f64) { self.width = v; }
+const inputEl = ref<HTMLInputElement | null>(null)
 
-// TS: get isEmpty(): boolean { return this.items.length === 0; }
-pub fn is_empty(&self) -> bool { self.items.is_empty() }
-
-// TS: get node(): Node | null { return this._node; }
-pub fn node(&self) -> Option<NodeId> { self.node }
+onMounted(() => {
+  inputEl.value?.focus()
+})
+</script>
 ```
 
-Naming convention: getter `foo()`, setter `set_foo()`. If the getter returns
-`bool`, prefix with `is_` or `has_` as appropriate (`is_empty`, `has_children`).
-
-**Computed getters** (no backing field — derived from other data):
-```rust
-// TS: get perimeter(): number { return 2 * (this.width + this.height); }
-pub fn perimeter(&self) -> f64 { 2.0 * (self.width + self.height) }
-```
-
-Do NOT add a backing field `_perimeter` — just compute it in the method body.
+The `ref` attribute in the template must match the variable name declared with `ref()`.
 
 ---
 
-## error_handling
+## forward_ref
 
-TypeScript `throw` / `try-catch` becomes `Result<T, E>` with the `?` operator.
+```jsx
+// React
+const Input = forwardRef<HTMLInputElement, InputProps>((props, ref) => (
+  <input ref={ref} {...props} />
+))
 
-```rust
-// TS: throw new Error("bad input")
-return Err(anyhow::anyhow!("bad input"));
-// or with a typed error enum:
-return Err(MyError::BadInput);
+// With useImperativeHandle
+const Modal = forwardRef<ModalHandle, ModalProps>((props, ref) => {
+  useImperativeHandle(ref, () => ({
+    open: () => setVisible(true),
+    close: () => setVisible(false),
+  }))
+  return <div>...</div>
+})
+```
+```vue
+<!-- Vue — expose public API with defineExpose -->
+<script setup lang="ts">
+import { ref } from 'vue'
 
-// TS: if (!condition) throw new Error("msg")
-if !condition { return Err(anyhow::anyhow!("msg")); }
+const visible = ref(false)
 
-// TS: try { riskyOp() } catch (e) { handleErr(e) }
-match risky_op() {
-    Ok(val) => { /* use val */ }
-    Err(e)  => { handle_err(e); }
-}
-
-// TS: function parse(s: string): number { ... throws ... }
-fn parse(s: &str) -> anyhow::Result<f64> { /* use ? to propagate */ }
+defineExpose({
+  open: () => { visible.value = true },
+  close: () => { visible.value = false },
+})
+</script>
 ```
 
-**Propagating errors with `?`:**
-```rust
-// TS: const val = riskyOp(); // throws if it fails
-let val = risky_op()?;   // returns Err early if risky_op returns Err
-```
-
-For msagl-js, most `throw` statements are parameter validation guards.
-Translate them as `anyhow::bail!("msg")` or return `Err(...)` directly.
-The msagl skeleton uses `anyhow::Result` — match that convention.
+For forwarding the actual DOM element, parent uses `ref` on the component and
+accesses `componentRef.value.$el` or use `defineExpose({ el: inputEl })`.
 
 ---
 
-## arena_allocation
+## component_props
 
-Classes that hold fields typed as other user-defined class instances (Node,
-Edge, GeomNode, etc.) are candidates for **arena allocation** in Rust.
-
-Arena allocation solves the graph ownership problem: instead of
-`Rc<RefCell<Node>>` (which creates nested borrow chains), store all nodes in
-a flat `Vec<Node>` and refer to them by `usize` index.
-
-```rust
-// TS: class Graph { nodes: Node[]; edges: Edge[]; }
-// class Node { outEdges: Edge[]; geom: GeomNode | null; }
-
-// Rust arena pattern:
-pub type NodeId = usize;
-pub type EdgeId = usize;
-
-pub struct Graph {
-    pub nodes: Vec<Node>,   // arena
-    pub edges: Vec<Edge>,   // arena
+```jsx
+// React
+interface SidebarProps {
+  items: Item[]
+  selected?: string
+  onSelect?: (id: string) => void
 }
-pub struct Node {
-    pub out_edge_ids: Vec<EdgeId>,   // indices into Graph.edges
-    pub geom: Option<GeomNodeId>,    // index into a GeomNode arena
+
+function Sidebar({ items, selected = '', onSelect }: SidebarProps) {
+```
+```vue
+<script setup lang="ts">
+interface SidebarProps {
+  items: Item[]
+  selected?: string
+  onSelect?: (id: string) => void
 }
-pub struct Edge {
-    pub source: NodeId,
-    pub target: NodeId,
-}
+
+const props = withDefaults(defineProps<SidebarProps>(), {
+  selected: '',
+})
+</script>
 ```
 
-**Mutating an arena node:**
-```rust
-// TS: node.someField = value;
-graph.nodes[node_id].some_field = value;
+Callback props (`onSelect`) stay in the interface if the parent passes them as
+props — but prefer emits for v0 (see `component_emits`).
+
+---
+
+## component_emits
+
+```jsx
+// React — callback props
+interface ButtonProps {
+  onClose: () => void
+  onSelect: (id: string) => void
+}
+
+// Usage in parent:
+<Button onClose={handleClose} onSelect={handleSelect} />
+```
+```vue
+<!-- Vue — defineEmits -->
+<script setup lang="ts">
+const emit = defineEmits<{
+  close: []
+  select: [id: string]
+}>()
+
+// Call like:
+emit('close')
+emit('select', itemId)
+</script>
+
+<!-- Usage in parent: -->
+<Button @close="handleClose" @select="handleSelect" />
 ```
 
-**Iterating:**
-```rust
-// TS: for (const e of node.outEdges) { ... }
-for &eid in &graph.nodes[node_id].out_edge_ids {
-    let edge = &graph.edges[eid];
-    // ...
+Convention: React `onFoo` → Vue event name `foo`. The `on` prefix is dropped.
+
+---
+
+## fragments
+
+```jsx
+// React — fragments avoid extra DOM nodes
+return (
+  <>
+    <Header />
+    <Main />
+    <Footer />
+  </>
+)
+```
+```vue
+<!-- Vue 3 — multiple root elements are supported natively -->
+<template>
+  <Header />
+  <Main />
+  <Footer />
+</template>
+```
+
+No wrapper needed. Vue 3 templates support multiple root elements.
+
+---
+
+## portals
+
+```jsx
+// React
+import { createPortal } from 'react-dom'
+
+function Modal({ children }) {
+  return createPortal(
+    <div className="modal">{children}</div>,
+    document.body
+  )
 }
 ```
+```vue
+<!-- Vue — Teleport -->
+<template>
+  <Teleport to="body">
+    <div class="modal">
+      <slot />
+    </div>
+  </Teleport>
+</template>
+```
 
-The msagl skeleton stores graph entities this way. Check the skeleton type
-definitions before inventing new storage strategies — do not introduce
-`Rc<RefCell<T>>` for types that the skeleton already defines as arena indices.
+`Teleport` is built into Vue 3. Use `to="body"` for modals/tooltips/popovers.
+
+---
+
+## children_prop
+
+```jsx
+// React
+function Card({ children }: { children: React.ReactNode }) {
+  return <div className="card">{children}</div>
+}
+
+// Usage
+<Card>
+  <p>Content here</p>
+</Card>
+```
+```vue
+<!-- Vue — default slot -->
+<template>
+  <div class="card">
+    <slot />
+  </div>
+</template>
+
+<!-- Usage -->
+<Card>
+  <p>Content here</p>
+</Card>
+```
+
+`{children}` always becomes `<slot />`. No prop needed in `defineProps`.
+
+---
+
+## named_children
+
+```jsx
+// React — render props / named children
+function Layout({ header, sidebar, children }) {
+  return (
+    <div>
+      <aside>{sidebar}</aside>
+      <header>{header}</header>
+      <main>{children}</main>
+    </div>
+  )
+}
+
+// Usage
+<Layout
+  header={<TopBar />}
+  sidebar={<NavPanel />}
+>
+  <PageContent />
+</Layout>
+```
+```vue
+<!-- Vue — named slots -->
+<template>
+  <div>
+    <aside><slot name="sidebar" /></aside>
+    <header><slot name="header" /></header>
+    <main><slot /></main>
+  </div>
+</template>
+
+<!-- Usage -->
+<Layout>
+  <template #sidebar><NavPanel /></template>
+  <template #header><TopBar /></template>
+  <PageContent />
+</Layout>
+```
+
+React render props (function-as-child) → Vue scoped slots:
+```vue
+<!-- Provider exposes data via scoped slot -->
+<slot :item="currentItem" :index="currentIndex" />
+
+<!-- Consumer -->
+<Provider v-slot="{ item, index }">
+  <Row :item="item" :index="index" />
+</Provider>
+```
+
+---
+
+## v_model
+
+```jsx
+// React — controlled input
+const [value, setValue] = useState('')
+<input value={value} onChange={(e) => setValue(e.target.value)} />
+```
+```vue
+<!-- Vue — v-model shorthand -->
+<script setup lang="ts">
+const value = ref('')
+</script>
+
+<template>
+  <input v-model="value" />
+</template>
+```
+
+For custom components:
+```vue
+<!-- Parent -->
+<MyInput v-model="name" />
+
+<!-- MyInput.vue -->
+<script setup lang="ts">
+const props = defineProps<{ modelValue: string }>()
+const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+</script>
+<template>
+  <input :value="props.modelValue" @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)" />
+</template>
+```
+
+---
+
+## key_prop
+
+```jsx
+// React
+<Component key={item.id} />
+```
+```vue
+<!-- Vue — same syntax -->
+<Component :key="item.id" />
+```
+
+Static string keys don't need `:`: `<div key="header">`. Dynamic values need `:key`.
+
+---
+
+## default_props
+
+```jsx
+// React
+function Button({ variant = 'primary', size = 'md', disabled = false }) {
+```
+```vue
+<script setup lang="ts">
+interface ButtonProps {
+  variant?: string
+  size?: string
+  disabled?: boolean
+}
+
+const props = withDefaults(defineProps<ButtonProps>(), {
+  variant: 'primary',
+  size: 'md',
+  disabled: false,
+})
+</script>
+```
+
+---
+
+## spread_props
+
+```jsx
+// React — spread all props to child
+function Wrapper({ className, ...rest }) {
+  return <button className={`wrapper ${className}`} {...rest} />
+}
+```
+```vue
+<!-- Vue — $attrs contains non-prop attributes -->
+<script setup lang="ts">
+// Disable automatic attribute inheritance so we can place it manually
+defineOptions({ inheritAttrs: false })
+
+interface WrapperProps {
+  class?: string
+}
+const props = defineProps<WrapperProps>()
+</script>
+
+<template>
+  <button :class="`wrapper ${props.class ?? ''}`" v-bind="$attrs" />
+</template>
+```
+
+If `inheritAttrs: false` is not needed and all attrs should fall through to root,
+just omit it — Vue's default behavior inherits all attrs on the root element.
+
+---
+
+## reducer_to_reactive
+
+```jsx
+// React
+const [state, dispatch] = useReducer(reducer, initialState)
+dispatch({ type: 'INCREMENT' })
+dispatch({ type: 'SET_NAME', payload: name })
+```
+```vue
+<script setup lang="ts">
+import { reactive } from 'vue'
+
+const state = reactive({ ...initialState })
+
+function dispatch(action: { type: string; payload?: unknown }) {
+  switch (action.type) {
+    case 'INCREMENT': state.count++; break
+    case 'SET_NAME': state.name = action.payload as string; break
+  }
+}
+</script>
+```
+
+For complex state, prefer Pinia store (see `pinia_store`).
+
+---
+
+## pinia_store
+
+```jsx
+// React — Zustand / Context + useReducer global store equivalent
+const useStore = create((set) => ({
+  count: 0,
+  increment: () => set(state => ({ count: state.count + 1 })),
+}))
+```
+```ts
+// Vue — Pinia store (stores/counter.ts)
+import { defineStore } from 'pinia'
+
+export const useCounterStore = defineStore('counter', () => {
+  const count = ref(0)
+  function increment() { count.value++ }
+  return { count, increment }
+})
+```
+```vue
+<script setup lang="ts">
+import { useCounterStore } from '@/stores/counter'
+const counter = useCounterStore()
+</script>
+
+<template>
+  <button @click="counter.increment">{{ counter.count }}</button>
+</template>
+```
+
+---
+
+## async_component
+
+```jsx
+// React — lazy loading
+const Panel = React.lazy(() => import('./Panel'))
+```
+```vue
+<script setup lang="ts">
+import { defineAsyncComponent } from 'vue'
+
+const Panel = defineAsyncComponent(() => import('./Panel.vue'))
+</script>
+```
+
+---
+
+## error_boundary
+
+```jsx
+// React — class-based error boundary
+class ErrorBoundary extends React.Component { ... }
+```
+```vue
+<!-- Vue — onErrorCaptured hook -->
+<script setup lang="ts">
+import { onErrorCaptured, ref } from 'vue'
+
+const error = ref<Error | null>(null)
+onErrorCaptured((err) => {
+  error.value = err
+  return false  // prevent propagation
+})
+</script>
+
+<template>
+  <slot v-if="!error" />
+  <div v-else class="error">{{ error.message }}</div>
+</template>
+```
+
+---
+
+## import_substitutions
+
+Direct package name substitutions when porting React packages to Vue equivalents:
+
+| React package | Vue equivalent |
+|---------------|----------------|
+| `lucide-react` | `lucide-vue-next` |
+| `framer-motion` | `@vueuse/motion` |
+| `react-hook-form` | `vee-validate` or `@vueuse/core` |
+| `react-router-dom` | `vue-router` |
+| `react-query` | `@tanstack/vue-query` |
+| `react-spring` | `@vueuse/motion` |
+| `classnames` / `clsx` | `clsx` (same package, works in Vue) |
+| `@radix-ui/*` | `radix-vue` |
+| `shadcn/ui` | `shadcn-vue` |
+
+```jsx
+// React
+import { ChevronRight, X, Check } from 'lucide-react'
+import { motion } from 'framer-motion'
+```
+```vue
+<script setup lang="ts">
+import { ChevronRight, X, Check } from 'lucide-vue-next'
+import { Motion } from '@vueuse/motion'
+</script>
+```
+
+---
+
+## claude_design_globals
+
+Claude Design artifacts use global token objects (`wfColors`, `mfColors`, `wfFonts`)
+defined inline in the source HTML. Phase A writes these to `src/design-tokens.ts`.
+
+```jsx
+// React source (inline in HTML)
+const wfColors = { brand: '#2563eb', surface: '#f8fafc', ... }
+const wfFonts = { sans: 'Inter, system-ui', mono: 'JetBrains Mono, monospace' }
+
+// Usage in components
+<div style={{ color: wfColors.brand }}>
+<p style={{ fontFamily: wfFonts.sans }}>
+```
+```vue
+<script setup lang="ts">
+import { wfColors, wfFonts } from '@/design-tokens'
+</script>
+
+<template>
+  <div :style="{ color: wfColors.brand }">
+  <p :style="{ fontFamily: wfFonts.sans }">
+</template>
+```
+
+`wfColors` / `mfColors` / `wfFonts` are plain objects (not reactive), so import
+them directly — no `ref()` wrapper needed. They are read-only design constants.
+
+---
+
+## watchers_deep
+
+```jsx
+// React — deep object watching via JSON.stringify or custom equality
+useEffect(() => {
+  syncToBackend(formData)
+}, [JSON.stringify(formData)])
+```
+```vue
+<script setup lang="ts">
+import { watch, reactive } from 'vue'
+
+const formData = reactive({ name: '', email: '' })
+
+// Watch deep — fires on any nested mutation
+watch(formData, (newVal) => {
+  syncToBackend(newVal)
+}, { deep: true })
+</script>
+```
+
+---
+
+## template_refs_multiple
+
+```jsx
+// React — array of refs for list items
+const itemRefs = useRef<(HTMLDivElement | null)[]>([])
+items.forEach((_, i) => {
+  itemRefs.current[i] = itemRefs.current[i] || null
+})
+```
+```vue
+<script setup lang="ts">
+import { ref } from 'vue'
+
+const itemRefs = ref<HTMLDivElement[]>([])
+</script>
+
+<template>
+  <div
+    v-for="(item, i) in items"
+    :key="item.id"
+    :ref="(el) => { if (el) itemRefs.value[i] = el as HTMLDivElement }"
+  >
+    {{ item.name }}
+  </div>
+</template>
+```
+
+---
+
+## nextTick
+
+```jsx
+// React — wait for DOM update after state change
+setState(newVal)
+// Then read DOM — need flushSync or useLayoutEffect
+import { flushSync } from 'react-dom'
+flushSync(() => setState(newVal))
+const height = divRef.current.offsetHeight
+```
+```vue
+<script setup lang="ts">
+import { nextTick } from 'vue'
+
+async function updateAndRead() {
+  count.value = newVal
+  await nextTick()  // wait for DOM to update
+  const height = divEl.value?.offsetHeight
+}
+</script>
+```

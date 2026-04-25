@@ -22,10 +22,10 @@ from vuemorphic.graph.nodes import (
     update_manifest,
     verify,
 )
-from vuemorphic.graph.state import OxidantState
+from vuemorphic.graph.state import VuemorphicState
 
 
-def _route_pick(state: OxidantState) -> str:
+def _route_pick(state: VuemorphicState) -> str:
     return "done" if state.get("done") else "continue"
 
 
@@ -34,9 +34,9 @@ def build_graph(checkpointer=None) -> object:
 
     Args:
         checkpointer: Optional LangGraph checkpointer (e.g. SqliteSaver).
-                      Pass None for CLI usage; pass a SqliteSaver for ``oxidant serve``.
+                      Pass None for CLI usage; pass a SqliteSaver for ``vuemorphic serve``.
     """
-    graph: StateGraph = StateGraph(OxidantState)
+    graph: StateGraph = StateGraph(VuemorphicState)
 
     graph.add_node("pick_next_node", pick_next_node)
     graph.add_node("build_context", build_context)

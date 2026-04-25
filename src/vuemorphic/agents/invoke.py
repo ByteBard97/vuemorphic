@@ -224,26 +224,25 @@ def invoke_pi(
     return _sanitize_snippet(raw_response)
 
 
-_RUST_CODE_START_RE = re.compile(
+_VUE_CODE_START_RE = re.compile(
     r"""^\s*(
-        if\s | let\s | match\s | for\s | while\s | loop\b | return\b |
-        \{ | \} | // | /\* | self\. | fn\s | pub\s | use\s |
-        impl\s | struct\s | [0-9] | "
+        <template | <script | <style |
+        export\s+default | const\s | let\s | function\s | import\s |
+        //[^\n] | /\* | \{
     )""",
     re.VERBOSE,
 )
 
 
 def _strip_prose_prefix(text: str) -> str:
-    """Remove leading English prose from an agent response, keeping only the code.
+    """Remove leading English prose from an agent response, keeping only the Vue SFC.
 
-    Agents often prefix their snippet with phrases like "Cargo check passed.
-    Here is the function body:" followed by the actual code. We detect the
-    first line that looks like Rust and return everything from there.
+    Agents often prefix their output with phrases like "Here is the converted component:"
+    followed by the actual code. We detect the first line that looks like Vue/JS.
     """
     lines = text.split("\n")
     for i, line in enumerate(lines):
-        if _RUST_CODE_START_RE.match(line):
+        if _VUE_CODE_START_RE.match(line):
             # Include any blank lines immediately before the code start
             start = i
             while start > 0 and not lines[start - 1].strip():
@@ -253,12 +252,11 @@ def _strip_prose_prefix(text: str) -> str:
 
 
 def _sanitize_snippet(text: str) -> str:
-    """Strip markdown fences, prose prefix, and any character that would break cargo check.
+    """Strip markdown fences and prose prefix from agent response.
 
-    Rust source must be pure ASCII (outside of string/char literals, which the
-    agent should not be producing anyway). Strip everything that isn't valid.
+    Vue SFCs allow Unicode in templates and strings, so we do NOT strip non-ASCII.
+    We only remove markdown formatting artifacts that the agent may have added.
     """
-    # Strip markdown code fences (```rust ... ``` or ``` ... ```)
     fenced = text.strip()
     if fenced.startswith("```"):
         lines = fenced.split("\n")
@@ -267,26 +265,6 @@ def _sanitize_snippet(text: str) -> str:
             inner = inner[:-1]
         text = "\n".join(inner)
     else:
-        # No markdown fence — strip any leading prose ("Here is the code:" etc.)
         text = _strip_prose_prefix(text)
-
-    # Replace common unicode punctuation with ASCII equivalents first
-    text = (
-        text
-        .replace("\u2014", "--")   # em-dash
-        .replace("\u2013", "-")    # en-dash
-        .replace("\u2018", "'")    # left single quote
-        .replace("\u2019", "'")    # right single quote
-        .replace("\u201c", '"')    # left double quote
-        .replace("\u201d", '"')    # right double quote
-        .replace("\u2026", "...")  # ellipsis
-    )
-
-    # Strip backticks — agents use them for markdown inline code (e.g. `foo`)
-    # which is not valid Rust syntax outside raw string literals
-    text = text.replace("`", "")
-
-    # Strip any remaining non-ASCII characters — they have no place in Rust source
-    text = text.encode("ascii", errors="ignore").decode("ascii")
 
     return text

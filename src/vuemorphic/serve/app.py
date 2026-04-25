@@ -72,16 +72,16 @@ def create_app(db_path: str, gui_dist: str | None = None, config_path: str | Non
         snippets = Path(req.snippets_dir)
         snippets.mkdir(parents=True, exist_ok=True)
 
-        from vuemorphic.graph.state import OxidantState
-        initial_state = OxidantState(
+        from vuemorphic.graph.state import VuemorphicState
+        initial_state = VuemorphicState(
             db_path=str(Path(req.db_path).resolve()),
-            target_path=str(Path(req.target_path).resolve()),
+            target_vue_path=str(Path(req.target_path).resolve()),
             snippets_dir=str(snippets.resolve()),
             config=cfg,
             worker_id=0,
             current_node_id=None,
             current_prompt=None,
-            current_snippet=None,
+            current_vue_content=None,
             current_tier=None,
             attempt_count=0,
             last_error=None,

@@ -75,21 +75,13 @@ def phase_a(
         from vuemorphic.analysis.classify_tiers import classify_manifest
         classify_manifest(manifest_out, model=model)
 
-    # A5: Skeleton generation
-    typer.echo("A5: generating Rust skeleton...")
-    from vuemorphic.analysis.generate_skeleton import generate_skeleton
-    generate_skeleton(manifest_out, target_repo)
+    # A5: Skeleton generation (Vue SFC skeletons with TODO(vuemorphic): markers)
+    typer.echo("A5: generating Vue SFC skeletons...")
+    from vuemorphic.skeleton.build import build_all_skeletons
+    build_all_skeletons(manifest_out, target_repo)
 
-    # Verify skeleton compiles
-    typer.echo("Verifying skeleton compiles...")
-    r = subprocess.run(["cargo", "build"], cwd=target_repo, capture_output=True, text=True)
-    if r.returncode != 0:
-        typer.echo(f"cargo build FAILED:\n{r.stderr}", err=True)
-        raise typer.Exit(1)
-    typer.echo("Phase A complete. Skeleton compiles.")
-
-    typer.echo("\nNext step (manual): review idiom_candidates.json and generate idiom_dictionary.md")
-    typer.echo("  Run a single Opus call with the detected patterns as input.")
+    typer.echo("Phase A complete.")
+    typer.echo("\nNext step: run vuemorphic phase-b to start LLM translation loop.")
 
 
 @app.command("classify-tiers")
@@ -226,7 +218,7 @@ def phase_b(
 
     from vuemorphic.assembly.assemble import check_and_assemble
     from vuemorphic.graph.nodes import build_context, pick_next_node
-    from vuemorphic.graph.state import OxidantState
+    from vuemorphic.graph.state import VuemorphicState
     from vuemorphic.models.manifest import Manifest as _Manifest
 
     # Always use absolute path — subprocess cwd changes must never create a rogue DB
@@ -234,7 +226,7 @@ def phase_b(
 
     if not db.exists():
         typer.echo(
-            f"Error: {db} not found. Run `oxidant import-manifest conversion_manifest.json` first.",
+            f"Error: {db} not found. Run `vuemorphic import-manifest conversion_manifest.json` first.",
             err=True,
         )
         raise typer.Exit(1)
@@ -253,17 +245,17 @@ def phase_b(
         typer.echo(f"Auto-converted {count} structural nodes.")
 
     snippets_dir.mkdir(parents=True, exist_ok=True)
-    target_path = Path(cfg["target_repo"])
+    target_path = Path(cfg.get("target_repo", "corpora/claude-design-vue"))
 
-    initial_state = OxidantState(
+    initial_state = VuemorphicState(
         db_path=str(db.resolve()),
-        target_path=str(target_path.resolve()),
+        target_vue_path=str(target_path.resolve()),
         snippets_dir=str(snippets_dir.resolve()),
         config=cfg,
         worker_id=0,
         current_node_id=None,
         current_prompt=None,
-        current_snippet=None,
+        current_vue_content=None,
         current_tier=None,
         attempt_count=0,
         last_error=None,

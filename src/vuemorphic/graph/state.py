@@ -5,22 +5,22 @@ import operator
 from typing import Annotated, Optional, TypedDict
 
 
-class OxidantState(TypedDict):
+class VuemorphicState(TypedDict):
     # ── Paths and config (set at init, never mutated) ─────────────────────────
-    db_path: str                # absolute path to oxidant.db (SQLite)
-    target_path: str            # absolute path to skeleton project (corpora/msagl-rs)
+    db_path: str                # absolute path to vuemorphic.db (SQLite)
+    target_vue_path: str        # absolute path to claude-design-vue project
     snippets_dir: str           # absolute path to snippets output directory
-    config: dict                # parsed oxidant.config.json
-    worker_id: int              # worker slot index (0-based); selects skeleton clone
+    config: dict                # parsed vuemorphic.config.json
+    worker_id: int              # worker slot index (0-based)
 
     # ── Per-node processing (reset by pick_next_node each iteration) ──────────
     current_node_id: Optional[str]
     current_prompt: Optional[str]
-    current_snippet: Optional[str]   # raw Rust body text returned by Claude
-    current_tier: Optional[str]      # "haiku" | "sonnet" | "opus"
-    attempt_count: int               # retries for the current node
-    last_error: Optional[str]        # error from last verification or invocation
-    verify_status: Optional[str]     # "PASS" | "STUB" | "BRANCH" | "CARGO"
+    current_vue_content: Optional[str]  # full .vue file text returned by Claude
+    current_tier: Optional[str]         # "haiku" | "sonnet" | "opus"
+    attempt_count: int                  # retries for the current node
+    last_error: Optional[str]           # error from last verification or invocation
+    verify_status: Optional[str]        # "PASS" | "REMNANT" | "POSTFILTER" | "COMPILE" | "TSC" | "CASCADE" | "VISUAL"
 
     # ── Accumulating across all iterations (uses add reducer) ─────────────────
     review_queue: Annotated[list[dict], operator.add]

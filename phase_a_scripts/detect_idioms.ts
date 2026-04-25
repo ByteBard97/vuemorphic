@@ -1,4 +1,12 @@
-import { Project, Node, SyntaxKind, TypeFlags } from "ts-morph";
+/**
+ * Phase A: detect React idioms in each component's source_text.
+ * Updates idioms_needed in the manifest in-place.
+ *
+ * Idiom names map to classify_tiers.py _SONNET_IDIOMS and _OPUS_IDIOMS
+ * and to idiom_dictionary.md section keys.
+ */
+
+import { Project, Node, SyntaxKind } from "ts-morph";
 import * as fs from "fs";
 
 const args = process.argv.slice(2);
@@ -10,128 +18,135 @@ function getArg(flag: string): string {
 const manifestPath = getArg("--manifest");
 const manifest     = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 
-const ARRAY_METHODS = new Set(["map","filter","reduce","find","some","every","forEach","flatMap","findIndex"]);
+type Detector = (n: Node, text: string) => boolean;
 
-// Primitive TS type names that do NOT warrant arena treatment
-const PRIMITIVE_TYPE_NAMES = new Set([
-  "string","number","boolean","bigint","symbol","undefined","null","void","never","any","unknown","object",
-  "String","Number","Boolean","Array","Object","Function","Promise","Date","RegExp","Error",
-]);
-
-type Detector = (n: Node) => boolean;
+const REACT_HOOKS = [
+  "useState", "useReducer", "useEffect", "useLayoutEffect", "useRef",
+  "useCallback", "useMemo", "useContext", "useId", "useDeferredValue",
+  "useTransition", "useSyncExternalStore",
+];
 
 const IDIOMS: Record<string, Detector> = {
-  // Fallback: check full text for ?. since QuestionDotToken is unreliable as a descendant
-  optional_chaining: (n) =>
-    n.getFullText().includes("?."),
+  // State management hooks → ref/reactive decisions
+  vue_reactivity_system: (_n, text) =>
+    REACT_HOOKS.some((hook) => text.includes(`${hook}(`)),
 
-  null_undefined: (n) =>
-    n.getDescendantsOfKind(SyntaxKind.NullKeyword).length > 0 ||
-    n.getFullText().includes("undefined") ||
-    n.getDescendantsOfKind(SyntaxKind.QuestionQuestionToken).length > 0,
+  // Complex props (generic types, required/optional mix)
+  prop_validation: (_n, text) =>
+    /interface\s+\w+Props/.test(text) &&
+    (/[<>]/.test(text.match(/interface\s+\w+Props[^}]+}/)?.[0] ?? "") ||
+      (text.match(/interface\s+\w+Props[^}]+}/)?.[0] ?? "").split("\n").length > 6),
 
-  array_method_chain: (n) =>
-    n.getDescendantsOfKind(SyntaxKind.CallExpression).some((call) => {
-      const expr = call.getExpression();
-      return Node.isPropertyAccessExpression(expr) && ARRAY_METHODS.has(expr.getName());
-    }),
+  // children prop or render props → slots conversion
+  slots: (_n, text) =>
+    /\bchildren\b/.test(text) ||
+    /React\.ReactNode/.test(text) ||
+    /\brender\w*\s*[=:]\s*\(/.test(text),
 
-  closure_capture: (n) =>
-    n.getDescendantsOfKind(SyntaxKind.ArrowFunction).length > 0 ||
-    n.getDescendantsOfKind(SyntaxKind.FunctionExpression).length > 0,
+  // HOCs, compound components
+  component_composition: (_n, text) =>
+    /\bforwardRef\s*\(/.test(text) ||
+    /\bDisplayName\b/.test(text) ||
+    /\bwithRouter\b|\bwithStyles\b/.test(text),
 
-  map_usage: (n) =>
-    n.getFullText().includes("Map<") || n.getFullText().includes("new Map("),
+  // CSS Modules or styled-components
+  css_scoping: (_n, text) =>
+    /styles\.\w+/.test(text) ||
+    /styled\.\w+`/.test(text) ||
+    /css`/.test(text),
 
-  set_usage: (n) =>
-    n.getFullText().includes("Set<") || n.getFullText().includes("new Set("),
-
-  async_await: (n) =>
-    n.getDescendantsOfKind(SyntaxKind.AwaitExpression).length > 0 ||
-    n.getFullText().includes("async "),
-
-  class_inheritance: (n) =>
-    n.getDescendantsOfKind(SyntaxKind.ExtendsKeyword).length > 0,
-
-  number_as_index: (n) => {
-    const text = n.getFullText();
-    return /\[\s*\w+\s*\]/.test(text) && text.includes("number");
+  // Multiple useEffect or useEffect with cleanup
+  lifecycle_hooks: (_n, text) => {
+    const matches = text.match(/\buseEffect\s*\(/g);
+    return (matches?.length ?? 0) > 1 ||
+      (/\buseEffect\s*\(/.test(text) && /return\s+\(\s*\)\s*=>/.test(text));
   },
 
-  dynamic_property_access: (n) =>
-    n.getDescendantsOfKind(SyntaxKind.ElementAccessExpression).length > 0,
+  // Context provider/consumer → provide/inject (opus-level)
+  context_to_provide_inject: (_n, text) =>
+    /\bcreateContext\s*\(/.test(text) ||
+    /\buseContext\s*\(/.test(text),
 
-  mutable_shared_state: (n) =>
-    n.getDescendantsOfKind(SyntaxKind.BinaryExpression).some((b) => {
-      const left = b.getLeft().getFullText().trim();
-      return left.includes(".") && b.getOperatorToken().getKind() === SyntaxKind.EqualsToken;
+  // forwardRef → defineExpose (opus-level)
+  forward_ref: (_n, text) =>
+    /\bforwardRef\s*[<(]/.test(text) ||
+    /\buseImperativeHandle\s*\(/.test(text),
+
+  // Render props / function-as-child → scoped slots (opus-level)
+  named_children: (_n, text) =>
+    /\bchildren\s*\(/.test(text) ||
+    /\brender\w+\s*=\s*\{/.test(text) ||
+    /typeof\s+children\s*===\s*['"]function['"]/.test(text),
+
+  // Conditional rendering patterns
+  conditional_rendering: (n, text) =>
+    n.getDescendantsOfKind(SyntaxKind.ConditionalExpression).length > 0 ||
+    /&&\s*</.test(text),
+
+  // List rendering patterns
+  list_rendering: (_n, text) =>
+    /\.map\s*\(\s*(?:\(?\w+,?\s*\w*\)?\s*=>|\w+\s*=>)/.test(text) &&
+    /</.test(text),
+
+  // Event handling complexity
+  event_handlers: (n, _text) =>
+    n.getDescendantsOfKind(SyntaxKind.JsxAttribute).some((attr) => {
+      const name = attr.getName();
+      return name.startsWith("on") && name !== "onChange" && name !== "onClick";
     }),
 
-  generator_function: (n) =>
-    n.getDescendantsOfKind(SyntaxKind.YieldExpression).length > 0,
+  // Portal usage
+  portals: (_n, text) =>
+    /createPortal\s*\(/.test(text),
 
-  static_members: (n) =>
-    n.getDescendantsOfKind(SyntaxKind.StaticKeyword).length > 0,
+  // useReducer (more complex state than useState)
+  reducer_to_reactive: (_n, text) =>
+    /\buseReducer\s*\(/.test(text),
 
-  union_type: (n) =>
-    n.getDescendantsOfKind(SyntaxKind.UnionType).length > 0,
+  // Async component / lazy loading
+  async_component: (_n, text) =>
+    /React\.lazy\s*\(/.test(text) || /import\s*\(/.test(text),
 
-  // ── New idioms ────────────────────────────────────────────────────────────
+  // Design token globals usage
+  claude_design_globals: (_n, text) =>
+    /\bwfColors\b/.test(text) || /\bmfColors\b/.test(text) ||
+    /\bwfFonts\b/.test(text) || /\bmfFonts\b/.test(text),
 
-  // TypeScript interfaces → Rust traits. Fire on interface declarations and
-  // on classes that implement an interface (the impl block needs a trait impl).
-  interface_trait: (n) =>
-    n.getDescendantsOfKind(SyntaxKind.InterfaceDeclaration).length > 0 ||
-    n.getDescendantsOfKind(SyntaxKind.ImplementsKeyword).length > 0,
+  // Import substitution needed (lucide-react → lucide-vue-next etc.)
+  import_substitutions: (_n, text) =>
+    /from\s+['"]lucide-react['"]/.test(text) ||
+    /from\s+['"]framer-motion['"]/.test(text) ||
+    /from\s+['"]react-hook-form['"]/.test(text) ||
+    /from\s+['"]@radix-ui\//.test(text),
 
-  // abstract class / abstract method → enum dispatch or Box<dyn Trait>
-  abstract_class: (n) =>
-    n.getDescendantsOfKind(SyntaxKind.AbstractKeyword).length > 0,
+  // className pattern (easy but worth flagging)
+  className_to_class: (_n, text) =>
+    /\bclassName\s*=/.test(text),
 
-  // TypeScript getter/setter accessors → plain Rust methods with different
-  // signatures: `fn field(&self) -> T` and `fn set_field(&mut self, v: T)`.
-  getter_setter: (n) =>
-    n.getDescendantsOfKind(SyntaxKind.GetAccessor).length > 0 ||
-    n.getDescendantsOfKind(SyntaxKind.SetAccessor).length > 0,
-
-  // throw / try-catch → Result<T, E> + the ? operator
-  error_handling: (n) =>
-    n.getDescendantsOfKind(SyntaxKind.ThrowStatement).length > 0 ||
-    n.getDescendantsOfKind(SyntaxKind.TryStatement).length > 0,
-
-  // Classes that hold fields typed as other user-defined class/interface types
-  // (i.e., non-primitive object references). These are candidates for arena
-  // allocation (Vec<T> + usize indices) rather than Rc<RefCell<T>> in Rust.
-  arena_allocation: (n) => {
-    const props = n.getDescendantsOfKind(SyntaxKind.PropertyDeclaration);
-    return props.some((prop) => {
-      const typeNode = prop.getTypeNode();
-      if (!typeNode) return false;
-      const text = typeNode.getText().trim();
-      // Strip Array<...> / T[] wrappers to get the element type name
-      const inner = text.replace(/Array<|>|\[\]/g, "").trim();
-      // Strip nullability: T | null | undefined
-      const base = inner.split("|")[0].trim();
-      return base.length > 0 && !PRIMITIVE_TYPE_NAMES.has(base) && /^[A-Z]/.test(base);
-    });
-  },
+  // Style object → :style binding
+  style_binding: (_n, text) =>
+    /\bstyle\s*=\s*\{\{/.test(text),
 };
 
-// Build in-memory project, one source file per node
+// Build in-memory project
 const project = new Project({ useInMemoryFileSystem: true });
 
 for (const [nodeId, node] of Object.entries(manifest.nodes) as [string, any][]) {
   if (!node.source_text) continue;
-  project.createSourceFile(`/${nodeId}.ts`, node.source_text, { overwrite: true });
+  // Use .tsx extension so JSX syntax is accepted
+  project.createSourceFile(`/${nodeId}.tsx`, node.source_text, { overwrite: true });
 }
 
 for (const [nodeId, node] of Object.entries(manifest.nodes) as [string, any][]) {
-  const sf = project.getSourceFile(`/${nodeId}.ts`);
+  const sf = project.getSourceFile(`/${nodeId}.tsx`);
   if (!sf) continue;
+  const text = node.source_text as string;
 
   const idioms: string[] = [];
   for (const [name, detect] of Object.entries(IDIOMS)) {
-    try { if (detect(sf)) idioms.push(name); } catch { /* skip */ }
+    try {
+      if (detect(sf, text)) idioms.push(name);
+    } catch { /* skip */ }
   }
   manifest.nodes[nodeId].idioms_needed = idioms;
 }
