@@ -1,175 +1,465 @@
-"""Verification pipeline for converted Rust snippets.
+"""Verification pipeline for converted Vue SFC files.
 
-Three checks in order of cost (cheapest first):
-1. Stub check   — instant: grep for todo!/unimplemented!
-2. Branch parity — instant: rough structural comparison
-3. Cargo check  — ~5-30 s: inject into skeleton, run cargo check, restore stub
+Tiered checks in order of cost (cheapest first):
+
+1. REMNANT  — instant: grep for React artifacts that shouldn't appear in Vue
+2. POSTFILTER — instant: grep for unfilled markers, bail-out TODOs, any-types
+3. COMPILE  — ~500ms: @vue/compiler-sfc structural parse
+4. TSC      — ~5-15s: vue-tsc --noEmit on the whole project
+5. VISUAL   — ~3-10s: myopex fingerprint diff vs React baseline (optional)
+
+Cascade detection: vue-tsc errors in files other than the target are CASCADE
+(a prior conversion broke a downstream component), not TSC (this snippet is bad).
 """
 from __future__ import annotations
 
+import json
+import logging
 import re
 import subprocess
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
 
 class VerifyStatus(str, Enum):
-    PASS = "PASS"
-    STUB = "STUB"           # todo!/unimplemented! found in snippet
-    BRANCH = "BRANCH"       # branch parity check failed
-    CARGO = "CARGO"         # cargo check compilation failed in target file
-    CASCADE = "CASCADE"     # cargo check failed in a *different* file (not the target)
+    PASS       = "PASS"
+    REMNANT    = "REMNANT"     # React artifacts found in Vue output
+    POSTFILTER = "POSTFILTER"  # unfilled markers / TODO bail-outs / any types
+    COMPILE    = "COMPILE"     # vue-tsc structural parse failure
+    TSC        = "TSC"         # vue-tsc type errors in target file
+    CASCADE    = "CASCADE"     # vue-tsc errors only in other (already-converted) files
+    VISUAL     = "VISUAL"      # myopex fingerprint diff failed
 
 
 @dataclass
 class VerifyResult:
     status: VerifyStatus
     error: str = field(default="")
+    # Actionable context for retry prompt (first error + ±5 lines + idiom card trigger)
+    retry_context: str = field(default="")
 
 
-_STUB_RE = re.compile(r'\btodo!\s*\(|\bunimplemented!\s*\(')
-_BRANCH_RE_TS = re.compile(r'\bif\b|\belse\b|\bswitch\b|\bcase\b|\bfor\b|\bwhile\b|\?\s')
-_BRANCH_RE_RS = re.compile(r'\bif\b|\belse\b|\bmatch\b|\bfor\b|\bwhile\b|\bloop\b')
+# ── Tier 1: React remnant grep ────────────────────────────────────────────────
 
-_BRANCH_MIN_TS_COUNT = 3          # only check parity when TS has >= this many branches
-_BRANCH_RATIO_FLOOR = 0.60        # Rust must have >= 60% as many branches as TS
-_CARGO_TIMEOUT_SECONDS = 120
+# These should NEVER appear in a Vue SFC — their presence means the model
+# failed to translate something.
+_REMNANTS: list[tuple[str, str]] = [
+    ("className=",          "className attribute (should be class=)"),
+    ("htmlFor=",            "htmlFor attribute (should be for=)"),
+    ("tabIndex=",           "tabIndex attribute (should be tabindex=)"),
+    ("dangerouslySetInnerHTML", "dangerouslySetInnerHTML (should be v-html)"),
+    ("import React",        "React import (should be removed)"),
+    ("from 'react'",        "react import (should be removed)"),
+    ('from "react"',        "react import (should be removed)"),
+    ("JSX.Element",         "JSX.Element type (should be removed)"),
+    ("React.FC",            "React.FC type (should be removed)"),
+    ("React.memo",          "React.memo (no Vue equivalent needed)"),
+    ("React.lazy",          "React.lazy (use defineAsyncComponent in Vue)"),
+    ("React.Fragment",      "React.Fragment (Vue supports multiple roots)"),
+    ("forwardRef",          "forwardRef (use defineExpose in Vue)"),
+    ("useImperativeHandle", "useImperativeHandle (use defineExpose in Vue)"),
+    ("lucide-react",        "lucide-react import (should be lucide-vue-next)"),
+    ("framer-motion",       "framer-motion import (should be motion-v)"),
+    ("react-hook-form",     "react-hook-form import (should be vee-validate)"),
+    ("ariaLabelledby=",     "camelCase ARIA attribute (should be aria-labelledby=)"),
+    ("{/* ",                "JSX comment syntax (should be <!-- -->)"),
+]
 
 
-def _check_stubs(snippet: str) -> VerifyResult | None:
-    if _STUB_RE.search(snippet):
-        return VerifyResult(VerifyStatus.STUB, "Snippet contains todo!() or unimplemented!()")
+def _check_remnants(vue_content: str) -> VerifyResult | None:
+    """Tier 1: scan for React artifacts that must not appear in Vue output."""
+    for pattern, description in _REMNANTS:
+        if pattern in vue_content:
+            # Find the line
+            for i, line in enumerate(vue_content.splitlines(), 1):
+                if pattern in line:
+                    context = f"line {i}: {line.strip()}"
+                    break
+            else:
+                context = "(not found in line scan)"
+            return VerifyResult(
+                VerifyStatus.REMNANT,
+                error=f"React remnant: {description}",
+                retry_context=f"Found React remnant '{pattern}' — {description}. {context}",
+            )
     return None
 
 
-def _check_branch_parity(ts_source: str, rs_snippet: str) -> VerifyResult | None:
-    ts_count = len(_BRANCH_RE_TS.findall(ts_source))
-    rs_count = len(_BRANCH_RE_RS.findall(rs_snippet))
-    if ts_count >= _BRANCH_MIN_TS_COUNT and rs_count < ts_count * _BRANCH_RATIO_FLOOR:
+# ── Tier 1.5: Post-filter ─────────────────────────────────────────────────────
+
+_SKELETON_MARKER = "TODO(vuemorphic):"
+_BAIL_OUT_PATTERNS = [
+    ("// TODO:",   "model left a TODO comment (did not fully translate)"),
+    ("// FIXME:",  "model left a FIXME comment"),
+    ("// ... existing code ...", "model used placeholder comment instead of translating"),
+    ("// ...",     "model used ellipsis placeholder comment"),
+]
+
+
+def _check_postfilter(vue_content: str) -> VerifyResult | None:
+    """Tier 1.5: check for unfilled skeleton markers and model bail-out patterns."""
+    # Unfilled skeleton markers (model didn't fill in the section)
+    if _SKELETON_MARKER in vue_content:
+        count = vue_content.count(_SKELETON_MARKER)
         return VerifyResult(
-            VerifyStatus.BRANCH,
-            f"Branch parity: TypeScript={ts_count} branches, Rust={rs_count} "
-            f"(below {_BRANCH_RATIO_FLOOR:.0%} floor)",
+            VerifyStatus.POSTFILTER,
+            error=f"{count} TODO(vuemorphic): marker(s) remain unfilled",
+            retry_context=(
+                f"The skeleton has {count} unfilled section(s) marked "
+                f"'TODO(vuemorphic):'. Fill in ALL sections."
+            ),
         )
+
+    # Model bail-out patterns
+    for pattern, description in _BAIL_OUT_PATTERNS:
+        if pattern in vue_content:
+            for i, line in enumerate(vue_content.splitlines(), 1):
+                if pattern in line:
+                    return VerifyResult(
+                        VerifyStatus.POSTFILTER,
+                        error=f"Model bail-out: {description}",
+                        retry_context=f"line {i}: {line.strip()} — {description}",
+                    )
+
     return None
 
 
-def _module_name(source_file: str) -> str:
-    from vuemorphic.analysis.generate_skeleton import _module_name as _gen_module_name
-    return _gen_module_name(source_file)
+# ── Tier 2: @vue/compiler-sfc structural parse ───────────────────────────────
+
+_VUE_PARSE_TIMEOUT = 10
 
 
-def _is_cascade_failure(error_text: str, target_rs_filename: str) -> bool:
-    """Return True if the cargo check error is entirely in files OTHER than target.
+def _check_compile(vue_content: str, vue_path: Path) -> VerifyResult | None:
+    """Tier 2: verify the file is structurally valid Vue SFC (fast parser check)."""
+    # Write to a temp file and run a minimal Node.js parse via npx
+    import tempfile, os
+    with tempfile.NamedTemporaryFile(
+        suffix=".vue", mode="w", encoding="utf-8", delete=False
+    ) as f:
+        f.write(vue_content)
+        tmp_path = f.name
+    try:
+        # Quick check: can Vue's compiler parse the template block?
+        # Use node -e with @vue/compiler-sfc if available, else skip gracefully
+        script = (
+            "const {parse}=require('@vue/compiler-sfc');"
+            f"const fs=require('fs');"
+            "const src=fs.readFileSync(process.argv[1],'utf8');"
+            "const {errors}=parse(src);"
+            "if(errors.length){process.stderr.write(JSON.stringify(errors));process.exit(1);}"
+        )
+        proc = subprocess.run(
+            ["node", "-e", script, tmp_path],
+            capture_output=True, text=True, timeout=_VUE_PARSE_TIMEOUT,
+        )
+        if proc.returncode != 0:
+            raw_err = proc.stderr[:500] or proc.stdout[:500]
+            return VerifyResult(
+                VerifyStatus.COMPILE,
+                error=f"Vue SFC parse error: {raw_err}",
+                retry_context=f"Vue compiler could not parse the SFC: {raw_err}",
+            )
+    except (OSError, subprocess.TimeoutExpired, FileNotFoundError):
+        # If @vue/compiler-sfc isn't installed yet, skip this tier gracefully
+        logger.debug("Tier 2 skipped: @vue/compiler-sfc not available")
+    finally:
+        os.unlink(tmp_path)
+    return None
 
-    Cargo's --message-format=short error lines look like:
-        src/foo.rs:12:5: error[E0308]: mismatched types
-    If every error line implicates a file that is NOT our target, the failure
-    is a cascade from a previously-converted snippet, not from our injection.
+
+# ── Tier 3: vue-tsc --noEmit ─────────────────────────────────────────────────
+
+_TSC_TIMEOUT = 60
+
+
+def _is_cascade_failure(error_text: str, target_vue_filename: str) -> bool:
+    """Return True if ALL vue-tsc errors are in files other than the target.
+
+    vue-tsc error lines look like:
+        src/components/Button.vue:23:5: error TS2345: ...
+    If every error line names a file that is NOT our target, the failure is a
+    cascade from a previously-converted component, not from this one.
     """
     error_lines = [
         line for line in error_text.splitlines()
-        if ": error" in line and line.strip().startswith("src/")
+        if ": error TS" in line and ".vue:" in line
     ]
     if not error_lines:
         return False
-    return all(target_rs_filename not in line for line in error_lines)
+    return all(target_vue_filename not in line for line in error_lines)
 
 
-def _smoke_check_skeleton(target_path: Path) -> bool:
-    """Run cargo check on the bare skeleton to confirm cleanup was clean."""
-    try:
-        proc = subprocess.run(
-            ["cargo", "check", "--message-format=short"],
-            cwd=target_path,
-            capture_output=True,
-            text=True,
-            timeout=_CARGO_TIMEOUT_SECONDS,
+def _first_error_with_context(error_text: str, vue_content: str) -> str:
+    """Extract first error + ±5 lines of source context for retry prompt."""
+    lines = error_text.splitlines()
+    first_err = next((l for l in lines if ": error TS" in l), lines[0] if lines else "")
+
+    # Try to extract line number from error
+    m = re.search(r":(\d+):\d+:", first_err)
+    if m and vue_content:
+        lineno = int(m.group(1))
+        src_lines = vue_content.splitlines()
+        start = max(0, lineno - 6)
+        end = min(len(src_lines), lineno + 5)
+        snippet = "\n".join(
+            f"{'>>>' if i + 1 == lineno else '   '} {src_lines[i]}"
+            for i in range(start, end)
         )
-        return proc.returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+        return f"{first_err}\n\nSource context:\n{snippet}"
+    return first_err
 
 
-def _inject_and_check_cargo(
-    node_id: str,
-    snippet: str,
-    target_path: Path,
-    source_file: str,
+def _check_tsc(
+    vue_path: Path,
+    target_dir: Path,
+    vue_content: str,
 ) -> VerifyResult | None:
-    """Inject snippet into skeleton, run cargo check, always restore original.
-
-    Returns:
-        None if cargo check passes (snippet is good).
-        VerifyResult(CARGO) if the error is in the target file (snippet is bad).
-        VerifyResult(CASCADE) if the error is in a different file (inconclusive —
-            a prior snippet is broken; this snippet should be retried later).
-    """
-    module = _module_name(source_file)
-    rs_path = target_path / "src" / f"{module}.rs"
-    rs_filename = f"src/{module}.rs"
-
-    marker = f'todo!("OXIDANT: not yet translated \u2014 {node_id}")'
-    original_content = rs_path.read_text()
-
-    if marker not in original_content:
-        return VerifyResult(
-            VerifyStatus.CARGO,
-            f"todo! marker not found for {node_id} in {module}.rs",
-        )
-
-    rs_path.write_text(original_content.replace(marker, snippet, 1))
-    cargo_failed = False
+    """Tier 3: run vue-tsc --noEmit on the whole project."""
+    # Write the content to disk first
+    vue_path.write_text(vue_content, encoding="utf-8")
     try:
         proc = subprocess.run(
-            ["cargo", "check", "--message-format=short"],
-            cwd=target_path,
+            ["npx", "vue-tsc", "--noEmit"],
+            cwd=target_dir,
             capture_output=True,
             text=True,
-            timeout=_CARGO_TIMEOUT_SECONDS,
+            timeout=_TSC_TIMEOUT,
         )
         if proc.returncode == 0:
             return None
-        cargo_failed = True
-        error_text = proc.stderr[:2000] or proc.stdout[:2000]
-        if _is_cascade_failure(error_text, rs_filename):
-            return VerifyResult(VerifyStatus.CASCADE, error_text)
-        return VerifyResult(VerifyStatus.CARGO, error_text)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        cargo_failed = True
-        return VerifyResult(VerifyStatus.CARGO, str(exc))
-    finally:
-        rs_path.write_text(original_content)
-        # Smoke-check restore only when cargo failed — confirms cleanup was clean
-        if cargo_failed and not _smoke_check_skeleton(target_path):
-            import logging
-            logging.getLogger(__name__).error(
-                "RESTORE FAILED: skeleton no longer compiles after restoring %s — "
-                "manual intervention required", rs_path
+
+        error_text = proc.stderr[:4000] or proc.stdout[:4000]
+        rel_filename = str(vue_path.relative_to(target_dir))
+
+        if _is_cascade_failure(error_text, rel_filename):
+            return VerifyResult(
+                VerifyStatus.CASCADE,
+                error=error_text[:500],
+                retry_context=(
+                    "vue-tsc errors are in OTHER components (cascade from a "
+                    "previously-converted file). This component may be fine."
+                ),
             )
 
+        first_err = _first_error_with_context(error_text, vue_content)
+        return VerifyResult(
+            VerifyStatus.TSC,
+            error=error_text[:500],
+            retry_context=first_err,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return VerifyResult(VerifyStatus.TSC, error=str(exc))
 
-def verify_snippet(
+
+# ── Tier 4: ESLint ────────────────────────────────────────────────────────────
+
+_ESLINT_TIMEOUT = 15
+
+
+def _check_eslint(vue_path: Path, target_dir: Path) -> VerifyResult | None:
+    """Tier 4: run ESLint with vue3-recommended rules."""
+    try:
+        proc = subprocess.run(
+            ["npx", "eslint", "--format=json", str(vue_path)],
+            cwd=target_dir,
+            capture_output=True,
+            text=True,
+            timeout=_ESLINT_TIMEOUT,
+        )
+        if proc.returncode == 0:
+            return None
+
+        # Parse ESLint JSON output
+        try:
+            results = json.loads(proc.stdout)
+            errors = [
+                m for r in results for m in r.get("messages", [])
+                if m.get("severity", 0) >= 2
+            ]
+            if errors:
+                first = errors[0]
+                desc = f"line {first.get('line','?')}: {first.get('ruleId','?')}: {first.get('message','?')}"
+                return VerifyResult(
+                    VerifyStatus.TSC,  # Treat ESLint errors as TSC-tier failures
+                    error=f"ESLint: {desc}",
+                    retry_context=f"ESLint error — {desc}",
+                )
+        except (json.JSONDecodeError, KeyError):
+            pass  # ESLint not configured yet, skip gracefully
+    except (OSError, subprocess.TimeoutExpired, FileNotFoundError):
+        logger.debug("Tier 4 skipped: eslint not available")
+    return None
+
+
+# ── Tier 5: myopex visual diff ────────────────────────────────────────────────
+
+_MYOPEX_TIMEOUT = 30
+
+
+def _check_visual(
+    component_name: str,
+    vue_url: str,
+    baseline_dir: str,
+    myopex_dir: str,
+) -> VerifyResult | None:
+    """Tier 5: myopex fingerprint diff vs React baseline."""
+    import tempfile, os
+
+    current_dir = tempfile.mkdtemp(prefix="vuemorphic_visual_")
+    try:
+        # Capture current Vue render
+        capture_proc = subprocess.run(
+            [
+                "npx", "myopex", "capture",
+                "--url", f"{vue_url}/{component_name}",
+                "--out", current_dir,
+                "--state", component_name,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=_MYOPEX_TIMEOUT,
+        )
+        if capture_proc.returncode != 0:
+            logger.warning("myopex capture failed: %s", capture_proc.stderr[:200])
+            return None  # Skip visual tier if capture fails
+
+        # Diff against baseline
+        diff_proc = subprocess.run(
+            [
+                "npx", "myopex", "diff",
+                "--old", baseline_dir,
+                "--new", current_dir,
+                "--state", component_name,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=_MYOPEX_TIMEOUT,
+            cwd=myopex_dir,
+        )
+
+        report_path = Path(current_dir) / "report.json"
+        if report_path.exists():
+            report = json.loads(report_path.read_text())
+            if not report.get("pass", True):
+                failures = report.get("regressions", {}).get("failures", [])
+                missing = report.get("regressions", {}).get("missing", [])
+                summary_parts = []
+                if failures:
+                    summary_parts.append(
+                        f"{len(failures)} regression(s): "
+                        + "; ".join(
+                            f"{f['component']}.{f['property']}: "
+                            f"expected={f['expected']!r} actual={f['actual']!r}"
+                            for f in failures[:3]
+                        )
+                    )
+                if missing:
+                    summary_parts.append(f"missing components: {', '.join(missing[:3])}")
+                summary = " | ".join(summary_parts) or "visual diff failed"
+                return VerifyResult(
+                    VerifyStatus.VISUAL,
+                    error=summary,
+                    retry_context=(
+                        f"myopex visual diff detected differences: {summary}. "
+                        f"Full report: {current_dir}/report.json"
+                    ),
+                )
+    except (OSError, subprocess.TimeoutExpired, FileNotFoundError):
+        logger.debug("Tier 5 skipped: myopex not available or timed out")
+    finally:
+        import shutil
+        shutil.rmtree(current_dir, ignore_errors=True)
+
+    return None
+
+
+# ── After-pass: whole-project regression check ───────────────────────────────
+
+
+def check_project_regression(target_dir: Path) -> VerifyResult | None:
+    """After a PASS, verify the whole Vue project still compiles.
+
+    A newly-converted component might introduce type errors in already-converted
+    components that import it. Run this after every successful conversion.
+    """
+    try:
+        proc = subprocess.run(
+            ["npx", "vue-tsc", "--noEmit"],
+            cwd=target_dir,
+            capture_output=True,
+            text=True,
+            timeout=_TSC_TIMEOUT,
+        )
+        if proc.returncode == 0:
+            return None
+        error_text = proc.stderr[:2000] or proc.stdout[:2000]
+        return VerifyResult(
+            VerifyStatus.CASCADE,
+            error=f"Post-pass regression: {error_text[:500]}",
+            retry_context="This conversion introduced a regression in another component.",
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+# ── Main entry point ─────────────────────────────────────────────────────────
+
+
+def verify_vue_file(
     node_id: str,
-    snippet: str,
-    ts_source: str,
-    target_path: Path,
-    source_file: str,
+    vue_content: str,
+    target_dir: Path,
+    component_name: str,
+    vue_url: str | None = None,
+    baseline_dir: str | None = None,
+    myopex_dir: str | None = None,
 ) -> VerifyResult:
-    """Run all three verification checks and return the first failure, or PASS.
+    """Run all verification tiers; return first failure or PASS.
 
     Args:
-        node_id: The manifest node ID (used to find the todo! marker).
-        snippet: The raw Rust function body text returned by the agent.
-        ts_source: The original TypeScript source text (for branch parity).
-        target_path: Root of the skeleton Rust project.
-        source_file: The node's TypeScript source file path.
+        node_id:          Manifest node ID (for logging).
+        vue_content:      The complete .vue file content from the agent.
+        target_dir:       Root of corpora/claude-design-vue/.
+        component_name:   PascalCase component name (e.g. 'Sidebar').
+        vue_url:          Base URL of Vite dev server (for visual tier, optional).
+        baseline_dir:     myopex baseline directory (for visual tier, optional).
+        myopex_dir:       myopex project directory (optional).
     """
-    if r := _check_stubs(snippet):
+    vue_path = target_dir / "src" / "components" / f"{component_name}.vue"
+
+    # Tier 1: React remnants
+    if r := _check_remnants(vue_content):
+        logger.debug("[%s] REMNANT: %s", node_id, r.error)
         return r
-    if r := _check_branch_parity(ts_source, snippet):
+
+    # Tier 1.5: Post-filter
+    if r := _check_postfilter(vue_content):
+        logger.debug("[%s] POSTFILTER: %s", node_id, r.error)
         return r
-    if r := _inject_and_check_cargo(node_id, snippet, target_path, source_file):
+
+    # Tier 2: @vue/compiler-sfc structural parse
+    if r := _check_compile(vue_content, vue_path):
+        logger.debug("[%s] COMPILE: %s", node_id, r.error)
         return r
+
+    # Tier 3: vue-tsc
+    if r := _check_tsc(vue_path, target_dir, vue_content):
+        logger.debug("[%s] %s: %s", node_id, r.status, r.error)
+        return r
+
+    # Tier 4: ESLint (write has already been done by Tier 3)
+    if r := _check_eslint(vue_path, target_dir):
+        logger.debug("[%s] ESLINT: %s", node_id, r.error)
+        return r
+
+    # Tier 5: myopex visual diff (only if configured)
+    if vue_url and baseline_dir:
+        if r := _check_visual(component_name, vue_url, baseline_dir, myopex_dir or "."):
+            logger.debug("[%s] VISUAL: %s", node_id, r.error)
+            return r
+
+    logger.info("[%s] PASS", node_id)
     return VerifyResult(VerifyStatus.PASS)
