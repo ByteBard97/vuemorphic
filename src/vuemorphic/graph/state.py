@@ -31,6 +31,7 @@ class VuemorphicState(TypedDict):
     nodes_this_run: int          # incremented each time a node completes or is queued
 
     # ── Supervisor / human-in-the-loop ────────────────────────────────────────
-    supervisor_hint: Optional[str]        # hint injected into next build_context call
-    interrupt_payload: Optional[dict]     # data surfaced to human reviewer via interrupt()
-    review_mode: str                      # "auto" | "interactive" | "supervised"
+    supervisor_hint:   Optional[str]        # hint injected into next build_context call
+    interrupt_payload: Optional[dict]       # data surfaced to human reviewer via interrupt()
+    review_mode:       str                  # "auto" | "interactive" | "supervised"
+    failure_analysis:  Optional[str]        # ---BLOCKED--- form from the most recent failed attempt

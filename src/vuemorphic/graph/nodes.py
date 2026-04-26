@@ -52,7 +52,14 @@ def pick_next_node(state: VuemorphicState) -> dict:
     node = manifest.claim_next_eligible(complexity_max=complexity_max)
 
     if node is None:
-        logger.info("All nodes converted. Phase B complete.")
+        # Distinguish: are we truly done, or hard-stopped by blocked nodes?
+        any_not_started = any(
+            n.status == NodeStatus.NOT_STARTED for n in manifest.nodes.values()
+        )
+        if any_not_started:
+            logger.warning("Phase B hard-stopped: remaining nodes are blocked by unconverted deps.")
+        else:
+            logger.info("All nodes converted or queued. Phase B complete.")
         return {"current_node_id": None, "done": True}
 
     start_tier = state.get("config", {}).get("start_tier")
@@ -70,6 +77,7 @@ def pick_next_node(state: VuemorphicState) -> dict:
         "attempt_count": 0,
         "last_error": None,
         "verify_status": None,
+        "failure_analysis": None,
         "done": False,
     }
 

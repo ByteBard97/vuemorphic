@@ -343,6 +343,7 @@ def phase_b(
         supervisor_hint=None,
         interrupt_payload=None,
         review_mode=cfg.get("review_mode", "auto"),
+        failure_analysis=None,
     )
 
     if dry_run:
