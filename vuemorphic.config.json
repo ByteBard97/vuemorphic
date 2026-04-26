@@ -17,6 +17,6 @@
   "max_attempts": {"haiku": 1, "sonnet": 1},
   "start_tier": "haiku",
   "no_escalate": true,
-  "parallelism": 3,
+  "parallelism": 10,
   "review_mode": "auto"
 }

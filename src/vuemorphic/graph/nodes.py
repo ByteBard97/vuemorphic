@@ -65,18 +65,15 @@ def pick_next_node(state: VuemorphicState) -> dict:
             logger.info("All nodes converted or queued. Phase B complete.")
         return {"current_node_id": None, "done": True}
 
-    _TIER_RANK = {TranslationTier.HAIKU.value: 0, TranslationTier.SONNET.value: 1, TranslationTier.OPUS.value: 2}
     available_tiers = set(state.get("config", {}).get("model_tiers", {}).keys())
     start_tier = state.get("config", {}).get("start_tier") or TranslationTier.HAIKU.value
-    node_tier = node.tier.value if node.tier else start_tier
-    # Respect manual escalation (node_tier > start_tier), but cap to tiers defined in model_tiers.
-    # This ensures removing a tier from config is a hard guard — Phase A classifications
-    # for that tier fall back to the highest available one.
-    preferred = node_tier if _TIER_RANK.get(node_tier, 0) > _TIER_RANK.get(start_tier, 0) else start_tier
-    if preferred not in available_tiers and available_tiers:
-        # Cap down to highest available tier
-        preferred = max(available_tiers, key=lambda t: _TIER_RANK.get(t, 0))
-    tier = preferred
+    # node.tier is only set by `vuemorphic escalate` — Phase A assignments are nulled out.
+    # NULL means run on start_tier; non-null means operator manually escalated this node.
+    tier = node.tier.value if node.tier else start_tier
+    # Hard cap: if the tier isn't in model_tiers (e.g. opus removed from config), fall back.
+    if available_tiers and tier not in available_tiers:
+        _TIER_RANK = {TranslationTier.HAIKU.value: 0, TranslationTier.SONNET.value: 1, TranslationTier.OPUS.value: 2}
+        tier = max(available_tiers, key=lambda t: _TIER_RANK.get(t, 0))
     logger.info(
         "Worker %d: processing %s (tier=%s, bfs_level=%s)",
         state.get("worker_id", 0), node.node_id, tier, node.bfs_level,
