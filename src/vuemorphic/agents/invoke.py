@@ -24,7 +24,7 @@ _TIMEOUT_BY_TIER: dict[str, int] = {
 _DEFAULT_TIMEOUT = 600
 _MAX_PROMPT_LOG_CHARS = 200
 
-# Local model timeouts are longer — inference is slower and cargo check still runs
+# Local model timeouts are longer — inference is slower
 _LOCAL_TIMEOUT_BY_TIER: dict[str, int] = {
     "haiku": 600,
     "sonnet": 900,
@@ -86,7 +86,7 @@ def invoke_claude(
     cmd.append(prompt)
 
     # Use start_new_session=True so the subprocess gets its own process group.
-    # This lets us kill the entire group (claude + any cargo/bash children) on timeout,
+    # This lets us kill the entire group (claude + any child processes) on timeout,
     # preventing the 6-hour hang we hit when grandchildren kept pipes open.
     proc = subprocess.Popen(
         cmd,

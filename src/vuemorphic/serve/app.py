@@ -1,4 +1,4 @@
-"""FastAPI application for oxidant serve.
+"""FastAPI application for vuemorphic serve.
 
 Endpoints:
   POST /run                   Start or resume a Phase B run
@@ -51,7 +51,7 @@ def create_app(db_path: str, gui_dist: str | None = None, config_path: str | Non
         db_path: Path to the SqliteSaver checkpoint DB file.
         gui_dist: Path to the built Vue 3 GUI dist/ directory, or None to skip.
     """
-    app = FastAPI(title="Oxidant Serve", version="0.1.0")
+    app = FastAPI(title="Vuemorphic Serve", version="0.1.0")
     run_manager = RunManager(db_path=db_path)
 
     @app.post("/run")
@@ -155,7 +155,7 @@ def create_app(db_path: str, gui_dist: str | None = None, config_path: str | Non
     @app.get("/api/defaults")
     async def get_defaults() -> JSONResponse:
         """Return default manifest/target paths from vuemorphic.config.json."""
-        cfg_path = Path(config_path) if config_path else Path("oxidant.config.json")
+        cfg_path = Path(config_path) if config_path else Path("vuemorphic.config.json")
         if not cfg_path.exists():
             return JSONResponse({})
         try:
@@ -166,7 +166,7 @@ def create_app(db_path: str, gui_dist: str | None = None, config_path: str | Non
         cfg_dir = cfg_path.parent
         target = cfg.get("target_repo", "")
         return JSONResponse({
-            "db_path": str((cfg_dir / "oxidant.db").resolve()),
+            "db_path": str((cfg_dir / "vuemorphic.db").resolve()),
             "target_path": str((cfg_dir / target).resolve()) if target else "",
             "snippets_dir": str((cfg_dir / cfg.get("snippets_dir", "snippets")).resolve()),
         })
@@ -178,17 +178,17 @@ def create_app(db_path: str, gui_dist: str | None = None, config_path: str | Non
 
     def _get_manifest_db() -> Path | None:
         """Resolve the manifest DB path from the config file."""
-        cfg_path = Path(config_path) if config_path else Path("oxidant.config.json")
+        cfg_path = Path(config_path) if config_path else Path("vuemorphic.config.json")
         if not cfg_path.exists():
             return None
-        return (cfg_path.parent / "oxidant.db").resolve()
+        return (cfg_path.parent / "vuemorphic.db").resolve()
 
     @app.get("/api/stats")
     async def get_stats() -> JSONResponse:
         """Aggregate node counts by status."""
         db = _get_manifest_db()
         if db is None or not db.exists():
-            return JSONResponse({"error": "oxidant.db not found"}, status_code=404)
+            return JSONResponse({"error": "vuemorphic.db not found"}, status_code=404)
         import sqlite3
         con = sqlite3.connect(str(db))
         rows = con.execute(
@@ -211,7 +211,7 @@ def create_app(db_path: str, gui_dist: str | None = None, config_path: str | Non
         """Per-module completion breakdown."""
         db = _get_manifest_db()
         if db is None or not db.exists():
-            return JSONResponse({"error": "oxidant.db not found"}, status_code=404)
+            return JSONResponse({"error": "vuemorphic.db not found"}, status_code=404)
         import sqlite3
         con = sqlite3.connect(str(db))
         rows = con.execute(
@@ -242,7 +242,7 @@ def create_app(db_path: str, gui_dist: str | None = None, config_path: str | Non
         """Top recurring error patterns across human_review nodes."""
         db = _get_manifest_db()
         if db is None or not db.exists():
-            return JSONResponse({"error": "oxidant.db not found"}, status_code=404)
+            return JSONResponse({"error": "vuemorphic.db not found"}, status_code=404)
         import re
         import sqlite3
         con = sqlite3.connect(str(db))
@@ -279,7 +279,7 @@ def create_app(db_path: str, gui_dist: str | None = None, config_path: str | Non
         """Paginated node list with optional status and module filters."""
         db = _get_manifest_db()
         if db is None or not db.exists():
-            return JSONResponse({"error": "oxidant.db not found"}, status_code=404)
+            return JSONResponse({"error": "vuemorphic.db not found"}, status_code=404)
         import sqlite3
         con = sqlite3.connect(str(db))
         con.row_factory = sqlite3.Row
@@ -321,6 +321,6 @@ def create_app(db_path: str, gui_dist: str | None = None, config_path: str | Non
     return app
 
 
-# Module-level app instance for ``uvicorn oxidant.serve.app:app``
+# Module-level app instance for ``uvicorn vuemorphic.serve.app:app``
 # Uses default paths; the serve CLI command calls create_app() directly.
-app = create_app(db_path="oxidant_checkpoints.db")
+app = create_app(db_path="vuemorphic_checkpoints.db")

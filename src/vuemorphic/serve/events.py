@@ -1,4 +1,4 @@
-"""SSE event dataclasses for the oxidant serve endpoint.
+"""SSE event dataclasses for the vuemorphic serve endpoint.
 
 Every event has a string ``event`` discriminant and a ``to_json()`` method
 that returns a compact JSON string suitable for an SSE ``data:`` line.

@@ -1,6 +1,6 @@
 """Generate a compilable Rust skeleton from conversion_manifest.json.
 
-Every function body is `todo!("OXIDANT: …")`. Must pass `cargo build`.
+Every function body is `todo!("VUEMORPHIC: …")`. Must pass `cargo build`.
 Phase B replaces the stubs one node at a time.
 """
 
@@ -717,7 +717,7 @@ def generate_skeleton(manifest_path: Path, target_path: Path) -> None:
                     safe_vname = _escape_keyword(_to_pascal_case(vname))
                     lines.append(f"    {safe_vname} = {discrim}," if discrim is not None else f"    {safe_vname},")
             else:
-                lines.append("    _Placeholder, // OXIDANT: enum variants not yet translated")
+                lines.append("    _Placeholder, // VUEMORPHIC: enum variants not yet translated")
             lines += ["}", ""]
 
         # Interfaces → traits
@@ -731,7 +731,7 @@ def generate_skeleton(manifest_path: Path, target_path: Path) -> None:
             seen_traits.add(name)
             lines += [
                 f"pub trait {name}: std::fmt::Debug {{",
-                "    // OXIDANT: trait methods not yet translated",
+                "    // VUEMORPHIC: trait methods not yet translated",
                 "}",
                 "",
             ]
@@ -759,7 +759,7 @@ def generate_skeleton(manifest_path: Path, target_path: Path) -> None:
                 child_node = hierarchy_map.node_for(child_name)
                 if child_node is None:
                     lines.append(
-                        f"    {child_name}, // OXIDANT: child node not in manifest"
+                        f"    {child_name}, // VUEMORPHIC: child node not in manifest"
                     )
                     continue
                 if KNOWN_HIERARCHIES.get(child_name) == "enum":
@@ -948,7 +948,7 @@ def generate_skeleton(manifest_path: Path, target_path: Path) -> None:
                     if gp not in used_in_fields:
                         lines.append(f"    _phantom_{gp.lower()}: std::marker::PhantomData<{gp}>,")
             else:
-                lines.append("    _placeholder: (), // OXIDANT: fields not yet translated")
+                lines.append("    _placeholder: (), // VUEMORPHIC: fields not yet translated")
                 for gp in generic_params:
                     lines.append(f"    _phantom_{gp.lower()}: std::marker::PhantomData<{gp}>,")
             lines += ["}", "", f"impl{tp_bounds} {sname}{tp_suffix} {{"]
@@ -975,7 +975,7 @@ def generate_skeleton(manifest_path: Path, target_path: Path) -> None:
                 )
                 lines += [
                     f"    pub fn new({params}) -> Self {{",
-                    f'        todo!("OXIDANT: not yet translated — {ctor_id}")',
+                    f'        todo!("VUEMORPHIC: not yet translated — {ctor_id}")',
                     "    }",
                     "",
                 ]
@@ -998,7 +998,7 @@ def generate_skeleton(manifest_path: Path, target_path: Path) -> None:
                 ret_str = f" -> {ret}" if ret != "()" else ""
                 lines += [
                     f"    pub fn {mname}(&mut self, {params}){ret_str} {{",
-                    f'        todo!("OXIDANT: not yet translated — {m.node_id}")',
+                    f'        todo!("VUEMORPHIC: not yet translated — {m.node_id}")',
                     "    }",
                     "",
                 ]
@@ -1018,7 +1018,7 @@ def generate_skeleton(manifest_path: Path, target_path: Path) -> None:
                     "",
                     f"impl{tp_bounds} Clone for {sname}{tp_suffix} {{",
                     "    fn clone(&self) -> Self {",
-                    '        panic!("OXIDANT: cannot clone struct containing closures")',
+                    '        panic!("VUEMORPHIC: cannot clone struct containing closures")',
                     "    }",
                     "}",
                     "",
@@ -1041,7 +1041,7 @@ def generate_skeleton(manifest_path: Path, target_path: Path) -> None:
             ret_str = f" -> {ret}" if ret != "()" else ""
             lines += [
                 f"pub fn {fname}({params}){ret_str} {{",
-                f'    todo!("OXIDANT: not yet translated — {node.node_id}")',
+                f'    todo!("VUEMORPHIC: not yet translated — {node.node_id}")',
                 "}",
                 "",
             ]

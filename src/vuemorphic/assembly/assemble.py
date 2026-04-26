@@ -68,7 +68,7 @@ def assemble_module(
     replaced = 0
 
     for node in functional:
-        marker = f'todo!("OXIDANT: not yet translated — {node.node_id}")'
+        marker = f'todo!("VUEMORPHIC: not yet translated — {node.node_id}")'
         if marker not in content:
             logger.warning("Marker not found for %s in %s", node.node_id, rs_path.name)
             continue

@@ -1,4 +1,4 @@
-"""SQLModel table definitions for Oxidant's SQLite backing store.
+"""SQLModel table definitions for Vuemorphic's SQLite backing store.
 
 Two tables:
   - NodeRecord   — one row per conversion node (mirrors ConversionNode fields)
