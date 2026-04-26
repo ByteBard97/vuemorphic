@@ -41,6 +41,7 @@ class NodeKind(str, Enum):
     INTERFACE = "interface"
     ENUM = "enum"
     TYPE_ALIAS = "type_alias"
+    REACT_COMPONENT = "react_component"
 
 
 class NodeStatus(str, Enum):
@@ -164,7 +165,7 @@ def _get_engine(db_path: Path):
                     logger.warning(
                         "SAFETY: DB at %s exists but has 0 nodes — "
                         "possible data loss. Refusing to use empty DB. "
-                        "Re-run 'oxidant import-manifest' to restore.",
+                        "Re-run 'vuemorphic import-manifest' to restore.",
                         key,
                     )
             _engine_cache[key] = engine
@@ -258,7 +259,7 @@ class Manifest:
     def load(cls, path: Path) -> "Manifest":
         """Open the SQLite DB at path and return a Manifest instance.
 
-        'path' is the db_path (oxidant.db). If the DB doesn't exist yet it is
+        'path' is the db_path (vuemorphic.db). If the DB doesn't exist yet it is
         created with the schema. Callers that previously passed a JSON path
         now pass the DB path instead.
         """

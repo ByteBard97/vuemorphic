@@ -1,4 +1,4 @@
-"""Oxidant CLI entry point."""
+"""Vuemorphic CLI entry point."""
 
 from __future__ import annotations
 
@@ -9,17 +9,20 @@ from pathlib import Path
 
 import typer
 
-app = typer.Typer(name="vuemorphic", help="Agentic TypeScript-to-Rust translation harness.",
+app = typer.Typer(name="vuemorphic", help="Agentic React→Vue 3 translation harness.",
                    no_args_is_help=True)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
 _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "phase_a_scripts"
 
+_DEFAULT_DB = "vuemorphic.db"
+
 
 @app.command("phase-a")
 def phase_a(
-    config: Path = typer.Option("oxidant.config.json", "--config", "-c"),
+    config: Path = typer.Option("vuemorphic.config.json", "--config", "-c"),
     manifest_out: Path = typer.Option("conversion_manifest.json", "--manifest-out"),
+    db: Path = typer.Option(_DEFAULT_DB, "--db", help="Output SQLite DB path for Phase B."),
     skip_tiers: bool = typer.Option(False, "--skip-tiers",
                                      help="Skip tier classification entirely."),
     heuristic_tiers: bool = typer.Option(False, "--heuristic-tiers",
@@ -27,15 +30,17 @@ def phase_a(
 ) -> None:
     """Run the full Phase A analysis pipeline.
 
-    Steps: A1 extract AST → A2 detect idioms → A3 topology → A4 classify tiers → A5 skeleton.
+    Steps: A1 extract AST → A2 detect idioms → A3 build Vue skeletons →
+           A4 import JSON→SQLite → A5 topology → A6 classify tiers.
     """
     cfg = json.loads(config.read_text())
     tsconfig    = cfg["tsconfig"]
     source_root = cfg["source_repo"]
     target_repo = Path(cfg["target_repo"])
     model       = cfg["model_tiers"]["haiku"]
+    db          = db.resolve()
 
-    # A1: AST extraction
+    # A1: AST extraction (TypeScript, writes JSON manifest)
     typer.echo("A1: extracting AST...")
     subprocess.run(
         ["npx", "tsx", str(_SCRIPTS_DIR / "extract_ast.ts"),
@@ -45,7 +50,7 @@ def phase_a(
         check=True,
     )
 
-    # A2: Idiom detection
+    # A2: Idiom detection (updates JSON manifest in place)
     typer.echo("A2: detecting idioms...")
     subprocess.run(
         ["npx", "tsx", str(_SCRIPTS_DIR / "detect_idioms.ts"),
@@ -53,35 +58,106 @@ def phase_a(
         check=True,
     )
 
-    # A3: Topological sort
-    typer.echo("A3: computing topological order...")
+    # A3: Build Vue project scaffold + skeletons from Python contract extractor
+    # Uses the Python extractor (not TypeScript) because it produces full
+    # ComponentContract objects with vue_imports, prop_defaults, etc. that
+    # the skeleton builder needs.
+    typer.echo("A3: scaffolding Vue project and building skeletons...")
+    from vuemorphic.analysis.component_contracts import extract_contracts, setup_vue_project
+    from vuemorphic.skeleton.build import build_all_skeletons
+    setup_vue_project(str(target_repo), cfg)
+    contracts = extract_contracts(source_root, cfg)
+    skeletons = build_all_skeletons(contracts, str(target_repo))
+    typer.echo(f"  Built {len(skeletons)} skeleton(s) in {target_repo}")
+
+    # A4: Import JSON manifest → SQLite (needed for topology + tiers + Phase B)
+    typer.echo("A4: importing manifest to SQLite...")
+    _import_json_to_db(manifest_out, db)
+    typer.echo(f"  DB: {db}")
+
+    # A5: Topological sort (on SQLite)
+    typer.echo("A5: computing topological order...")
     from vuemorphic.models.manifest import Manifest
-    manifest = Manifest.load(manifest_out)
+    manifest = Manifest.load(db)
     try:
         manifest.compute_topology()
     except ValueError as exc:
         typer.echo(f"Warning: {exc} — continuing without full topology", err=True)
-    manifest.save(manifest_out)
 
-    # A4: Tier classification
+    # A6: Tier classification
     if skip_tiers:
-        typer.echo("A4: skipped (--skip-tiers)")
+        typer.echo("A6: skipped (--skip-tiers)")
     elif heuristic_tiers:
-        typer.echo("A4: classifying tiers (heuristic, no API call)...")
+        typer.echo("A6: classifying tiers (heuristic, no API call)...")
         from vuemorphic.analysis.classify_tiers import classify_manifest_heuristic
-        classify_manifest_heuristic(manifest_out)
+        classify_manifest_heuristic(db)
     else:
-        typer.echo("A4: classifying tiers...")
+        typer.echo("A6: classifying tiers...")
         from vuemorphic.analysis.classify_tiers import classify_manifest
-        classify_manifest(manifest_out, model=model)
-
-    # A5: Skeleton generation (Vue SFC skeletons with TODO(vuemorphic): markers)
-    typer.echo("A5: generating Vue SFC skeletons...")
-    from vuemorphic.skeleton.build import build_all_skeletons
-    build_all_skeletons(manifest_out, target_repo)
+        classify_manifest(db, model=model)
 
     typer.echo("Phase A complete.")
-    typer.echo("\nNext step: run vuemorphic phase-b to start LLM translation loop.")
+    typer.echo(f"\nNext step: vuemorphic phase-b --db {db} --max-nodes 5")
+
+
+def _import_json_to_db(manifest_json: Path, db: Path) -> None:
+    """Import a JSON conversion manifest into SQLite. Upserts all nodes."""
+    import json as _json
+    import sqlite3 as _sqlite3
+
+    from vuemorphic.models.db import NodeRecord, ManifestMeta
+    from vuemorphic.models.manifest import ConversionNode, _get_engine
+    from sqlmodel import Session, SQLModel
+
+    data = _json.loads(manifest_json.read_text())
+    nodes_raw = data.get("nodes", {})
+
+    engine = _get_engine(db)
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        meta = session.get(ManifestMeta, 1)
+        if meta is None:
+            meta = ManifestMeta(
+                id=1,
+                version=data.get("version", "1.0"),
+                source_repo=data.get("source_repo", ""),
+                generated_at=data.get("generated_at", ""),
+            )
+        else:
+            meta.version = data.get("version", meta.version)
+            meta.source_repo = data.get("source_repo", meta.source_repo)
+            meta.generated_at = data.get("generated_at", meta.generated_at)
+        session.add(meta)
+
+        inserted = updated = 0
+        for node_id, raw in nodes_raw.items():
+            raw["node_id"] = raw.get("node_id") or node_id
+            try:
+                node = ConversionNode.model_validate(raw)
+            except Exception:
+                continue
+            row = session.get(NodeRecord, node_id)
+            if row is None:
+                session.add(NodeRecord.from_conversion_node(node))
+                inserted += 1
+            else:
+                new_row = NodeRecord.from_conversion_node(node)
+                new_row.status = row.status
+                new_row.snippet_path = row.snippet_path
+                new_row.attempt_count = row.attempt_count
+                new_row.last_error = row.last_error
+                session.add(new_row)
+                updated += 1
+        session.commit()
+
+    with _sqlite3.connect(str(db)) as con:
+        con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+    logging.getLogger(__name__).info(
+        "Imported manifest: %d inserted, %d updated (%d total nodes)",
+        inserted, updated, len(nodes_raw),
+    )
 
 
 @app.command("classify-tiers")
@@ -89,7 +165,7 @@ def classify_tiers(
     manifest: Path = typer.Option("conversion_manifest.json", "--manifest"),
     heuristic: bool = typer.Option(False, "--heuristic",
                                     help="Use deterministic rules (no API call)."),
-    config: Path = typer.Option("oxidant.config.json", "--config", "-c"),
+    config: Path = typer.Option("vuemorphic.config.json", "--config", "-c"),
 ) -> None:
     """Run tier classification (A4) on an existing manifest without re-running Phase A.
 
@@ -122,11 +198,11 @@ def classify_tiers(
 @app.command("import-manifest")
 def import_manifest(
     manifest: Path = typer.Argument(..., help="Path to conversion_manifest.json"),
-    db: Path = typer.Option("oxidant.db", "--db", help="Output SQLite DB path."),
+    db: Path = typer.Option("vuemorphic.db", "--db", help="Output SQLite DB path."),
 ) -> None:
     """Import a JSON conversion manifest into SQLite.
 
-    One-time migration: reads conversion_manifest.json, creates oxidant.db,
+    One-time migration: reads conversion_manifest.json, creates vuemorphic.db,
     and bulk-inserts all nodes. Phase A keeps writing JSON; run this once to
     seed the DB before starting Phase B.
     """
@@ -195,8 +271,8 @@ def import_manifest(
 
 @app.command("phase-b")
 def phase_b(
-    config: Path = typer.Option("oxidant.config.json", "--config", "-c"),
-    db: Path = typer.Option("oxidant.db", "--db", help="Path to oxidant SQLite manifest DB."),
+    config: Path = typer.Option("vuemorphic.config.json", "--config", "-c"),
+    db: Path = typer.Option("vuemorphic.db", "--db", help="Path to vuemorphic SQLite manifest DB."),
     snippets_dir: Path = typer.Option("snippets", "--snippets-dir"),
     dry_run: bool = typer.Option(
         False, "--dry-run",
@@ -209,8 +285,8 @@ def phase_b(
 ) -> None:
     """Run Phase B: translate all nodes in topological order via Claude Code.
 
-    Requires a compiled skeleton from ``oxidant phase-a`` and an oxidant.db
-    seeded by ``oxidant import-manifest``.
+    Requires a compiled skeleton from ``vuemorphic phase-a`` and an vuemorphic.db
+    seeded by ``vuemorphic import-manifest``.
     Structural nodes (class/interface/enum/type_alias) are auto-converted first.
     Exhausted nodes are written to ``review_queue.json``.
     """
@@ -329,7 +405,7 @@ def phase_b(
 
 @app.command("phase-c")
 def phase_c(
-    config: Path = typer.Option("oxidant.config.json", "--config", "-c"),
+    config: Path = typer.Option("vuemorphic.config.json", "--config", "-c"),
     target: Path = typer.Option(
         None, "--target",
         help="Rust project root. Defaults to target_repo from config.",
@@ -359,7 +435,7 @@ def phase_c(
 
 @app.command("phase-d")
 def phase_d(
-    config: Path = typer.Option("oxidant.config.json", "--config", "-c"),
+    config: Path = typer.Option("vuemorphic.config.json", "--config", "-c"),
     target: Path = typer.Option(
         None, "--target",
         help="Rust project root. Defaults to target_repo from config.",
@@ -397,10 +473,10 @@ def phase_d(
 
 @app.command("serve")
 def serve(
-    config: Path = typer.Option("oxidant.config.json", "--config", "-c"),
+    config: Path = typer.Option("vuemorphic.config.json", "--config", "-c"),
     host: str = typer.Option("127.0.0.1", "--host"),
     port: int = typer.Option(8000, "--port"),
-    db_path: str = typer.Option("oxidant_checkpoints.db", "--db",
+    db_path: str = typer.Option("vuemorphic_checkpoints.db", "--db",
                                  help="Path to SqliteSaver checkpoint DB"),
     gui_dist: str = typer.Option(None, "--gui-dist",
                                   help="Path to built Vue GUI dist/ directory"),
@@ -408,14 +484,14 @@ def serve(
 ) -> None:
     """Start the FastAPI server for Phase B monitoring and control.
 
-    Opens the oxidant dashboard at http://<host>:<port>/
+    Opens the vuemorphic dashboard at http://<host>:<port>/
     Start a run with: POST /run  {manifest_path, target_path, ...}
     Stream progress with: GET /stream/{thread_id}
     """
     import uvicorn
     from vuemorphic.serve.app import create_app
 
-    typer.echo(f"Starting oxidant serve on http://{host}:{port}")
+    typer.echo(f"Starting vuemorphic serve on http://{host}:{port}")
     if gui_dist:
         typer.echo(f"Serving GUI from {gui_dist}")
     else:
@@ -437,7 +513,7 @@ def translate(
 
 @app.command("reset-stuck")
 def reset_stuck(
-    db: Path = typer.Option("oxidant.db", "--db", help="Path to oxidant SQLite manifest DB."),
+    db: Path = typer.Option("vuemorphic.db", "--db", help="Path to vuemorphic SQLite manifest DB."),
 ) -> None:
     """Reset all IN_PROGRESS nodes to NOT_STARTED.
 

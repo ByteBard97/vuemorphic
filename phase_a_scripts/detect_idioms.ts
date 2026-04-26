@@ -126,6 +126,10 @@ const IDIOMS: Record<string, Detector> = {
   // Style object → :style binding
   style_binding: (_n, text) =>
     /\bstyle\s*=\s*\{\{/.test(text),
+
+  // Icon objects (MfIcons, WfIcons, etc.) → v-html pattern
+  icon_objects: (_n, text) =>
+    /\b[A-Za-z]+Icons\b/.test(text),
 };
 
 // Build in-memory project

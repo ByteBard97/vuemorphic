@@ -4,7 +4,7 @@ For each ComponentContract, generate a structurally valid .vue SFC with
 TODO(vuemorphic): markers. The LLM fills in the markers in Phase B.
 
 The skeleton gives vue-tsc a valid type envelope to check against before the
-model touches anything — same purpose as oxidant's todo!() stubs, at Vue file
+model touches anything — same purpose as vuemorphic's todo!() stubs, at Vue file
 granularity instead of Rust function body granularity.
 """
 
@@ -36,6 +36,11 @@ def build_skeleton(contract: ComponentContract, target_dir: str) -> str:
     """
     output_path = Path(target_dir) / "src" / "components" / f"{contract.component_name}.vue"
     output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Never overwrite a converted file (one with no TODO markers remaining)
+    if output_path.exists() and SKELETON_MARKER not in output_path.read_text(encoding="utf-8"):
+        logger.debug("Skipping already-converted: %s", output_path)
+        return str(output_path)
 
     template = build_template(contract)
     script = build_script(contract)

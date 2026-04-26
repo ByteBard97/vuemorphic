@@ -1,11 +1,32 @@
 """Generate the <script setup lang="ts"> section of a Vue skeleton SFC."""
 
 from __future__ import annotations
+import re
 from vuemorphic.models.contract import ComponentContract
 from vuemorphic.skeleton.imports import (
     build_icon_import_line,
     build_shadcn_import_lines,
 )
+
+
+def _wrap_default(value: str) -> str:
+    """Wrap object/array defaults in factory functions for Vue withDefaults.
+    Skip complex expressions (dot access, function calls) — let the LLM handle those.
+    """
+    v = value.strip()
+    # Simple literals: numbers, booleans, quoted strings → use as-is
+    if re.match(r'^-?\d+(\.\d+)?$', v):  # number
+        return v
+    if v in ('true', 'false', 'null', 'undefined'):
+        return v
+    if v and v[0] in ('"', "'", '`'):  # string literal
+        return v
+    # Object/array literals → factory function
+    if v.startswith(("{", "[")):
+        return f"() => ({v})"
+    # Anything else (e.g. wfColors.green, someVar) → omit from withDefaults
+    # The LLM will supply the correct default from context
+    return None  # type: ignore
 
 
 def build_script(contract: ComponentContract) -> str:
@@ -42,13 +63,19 @@ def build_script(contract: ComponentContract) -> str:
 
         # defineProps
         if contract.prop_defaults:
-            defaults_str = ", ".join(
-                f"{k}: {v}" for k, v in contract.prop_defaults.items()
-            )
-            lines.append(
-                f"const props = withDefaults(defineProps<{contract.component_name}Props>(), "
-                f"{{ {defaults_str} }})"
-            )
+            pairs = [
+                f"{k}: {_wrap_default(v)}"
+                for k, v in contract.prop_defaults.items()
+                if _wrap_default(v) is not None
+            ]
+            if pairs:
+                defaults_str = ", ".join(pairs)
+                lines.append(
+                    f"const props = withDefaults(defineProps<{contract.component_name}Props>(), "
+                    f"{{ {defaults_str} }})"
+                )
+            else:
+                lines.append(f"const props = defineProps<{contract.component_name}Props>()")
         else:
             lines.append(f"const props = defineProps<{contract.component_name}Props>()")
 

@@ -195,7 +195,17 @@ function findComponents(sf: SourceFile): ComponentDef[] {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-const project = new Project({ tsConfigFilePath: tsconfigPath });
+const project = new Project({
+  tsConfigFilePath: tsconfigPath,
+  skipAddingFilesFromTsConfig: true,  // we add source files explicitly below
+});
+// Add all JS/JSX/TS/TSX files from the source root so tsconfig location doesn't matter
+project.addSourceFilesAtPaths([
+  path.join(sourceRoot, "**/*.ts"),
+  path.join(sourceRoot, "**/*.tsx"),
+  path.join(sourceRoot, "**/*.js"),
+  path.join(sourceRoot, "**/*.jsx"),
+]);
 const resultNodes: Record<string, any> = {};
 
 // Collision detection: component name → first source file that defines it

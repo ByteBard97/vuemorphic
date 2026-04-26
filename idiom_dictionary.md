@@ -937,3 +937,29 @@ async function updateAndRead() {
 }
 </script>
 ```
+
+---
+
+## icon_objects
+
+Icon objects (e.g. `MfIcons`, `WfIcons`) are exported from `@/design-tokens` as
+`Record<string, string>` where each value is an SVG HTML string.
+Use `v-html` to render them — do NOT use `<component :is>`.
+
+```jsx
+// React
+import { MfIcons } from './tokens'
+<div>{MfIcons.cursor}</div>
+<div>{tool.icon}</div>
+```
+```vue
+<!-- Vue -->
+import { MfIcons } from '@/design-tokens'
+<span v-html="MfIcons.cursor" />
+<span v-html="tool.icon" />
+```
+
+If iterating over a tools array where `icon` is a string from an icon object:
+```vue
+<span v-if="tool.icon" v-html="tool.icon" />
+```

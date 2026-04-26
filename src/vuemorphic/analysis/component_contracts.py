@@ -213,17 +213,17 @@ def _build_contract(
         if name != component_name and re.search(rf"<{re.escape(name)}[\s/>]", source_text)
     ]
 
-    # Callback props → emitted events
+    # Synthesise props interface from destructuring
+    props_interface, prop_defaults, props_param_text = _synthesise_props(
+        component_name, source_text
+    )
+
+    # Callback props → emitted events (only from the props destructuring, not JSX body)
     emitted_events = []
-    for m in _CALLBACK_PROP_RE.finditer(source_text):
+    for m in _CALLBACK_PROP_RE.finditer(props_param_text):
         event_name = m.group(1)[0].lower() + m.group(1)[1:]
         if event_name not in emitted_events:
             emitted_events.append(event_name)
-
-    # Synthesise props interface from destructuring
-    props_interface, prop_defaults = _synthesise_props(
-        component_name, source_text
-    )
 
     return ComponentContract(
         node_id=node_id,
@@ -241,32 +241,70 @@ def _build_contract(
     )
 
 
+def _split_params(params: str) -> list[str]:
+    """Split a destructuring param list by top-level commas (ignores commas inside braces/brackets)."""
+    parts: list[str] = []
+    depth = 0
+    current: list[str] = []
+    for ch in params:
+        if ch in "({[":
+            depth += 1
+        elif ch in ")}]":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append("".join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+    if current:
+        parts.append("".join(current).strip())
+    return [p for p in parts if p]
+
+
 def _synthesise_props(
     component_name: str, source_text: str
-) -> tuple[str, dict[str, str]]:
+) -> tuple[str, dict[str, str], str]:
     """Synthesise a TypeScript Props interface from destructuring patterns.
 
     For plain .jsx files (no TS interface), we scan the component's parameter
     list for destructured prop names and default values.
 
-    Returns (interface_text, defaults_dict).
+    Returns (interface_text, defaults_dict, raw_params_text).
+    raw_params_text is the props destructuring content — used by the caller to
+    extract callback props (onX) without scanning the whole source file.
     """
-    # Try to find the component's parameter destructuring
+    # Find the opening position of the props destructuring
     # e.g. function Sidebar({ items, onSelect, w = 1100, h = 900 })
-    pattern = re.compile(
+    header_pattern = re.compile(
         rf"(?:function\s+{re.escape(component_name)}\s*|"
         rf"const\s+{re.escape(component_name)}\s*=\s*)"
-        r"\(\s*\{([^}]*)\}"
+        r"\(\s*\{"
     )
-    m = pattern.search(source_text)
-    if not m:
-        return "", {}
+    hm = header_pattern.search(source_text)
+    if not hm:
+        return "", {}, ""
 
-    raw_params = m.group(1)
+    # Walk forward from the opening { to find the balanced closing }
+    start = hm.end() - 1  # position of the opening {
+    depth = 0
+    end = start
+    for i in range(start, len(source_text)):
+        ch = source_text[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+    else:
+        return "", {}, ""
+
+    raw_params = source_text[start + 1 : end]
     prop_lines: list[str] = []
     defaults: dict[str, str] = {}
 
-    for param in raw_params.split(","):
+    for param in _split_params(raw_params):
         param = param.strip()
         if not param:
             continue
@@ -289,14 +327,14 @@ def _synthesise_props(
         prop_lines.append(f"  {name}: {ts_type}")
 
     if not prop_lines:
-        return "", {}
+        return "", {}, raw_params
 
     interface_text = (
         f"interface {component_name}Props {{\n"
         + "\n".join(prop_lines)
         + "\n}"
     )
-    return interface_text, defaults
+    return interface_text, defaults, raw_params
 
 
 def _infer_type(default_value: str) -> str:
@@ -309,10 +347,10 @@ def _infer_type(default_value: str) -> str:
     if re.match(r"^-?\d+(\.\d+)?$", v):
         return "number"
     if v in ("{}", "[]"):
-        return "Record<string, unknown>"
+        return "Record<string, any>"
     if v == "null" or v == "undefined":
-        return "unknown"
-    return "unknown"
+        return "any"
+    return "any"
 
 
 def _infer_type_from_name(name: str) -> str:
@@ -320,19 +358,86 @@ def _infer_type_from_name(name: str) -> str:
     lower = name.lower()
     if lower in ("w", "h", "width", "height", "size", "count", "index", "x", "y"):
         return "number"
-    if lower in ("label", "title", "text", "name", "id", "className", "class"):
+    if lower in ("top", "left", "right", "bottom"):
+        return "string | number | undefined"
+    if lower in ("label", "title", "text", "name", "id", "classname", "class"):
         return "string"
     if lower in ("visible", "open", "active", "disabled", "checked", "selected"):
         return "boolean"
     if lower in ("children", "content", "header", "footer"):
-        return "unknown"
-    if lower.endswith("s") or lower in ("items", "options", "data", "list"):
-        return "unknown[]"
-    return "unknown"
+        return "any"
+    if lower.endswith("meta") or lower.endswith("map"):
+        return "Record<string, any>"
+    if lower.endswith("order") or lower.endswith("ids") or lower.endswith("list") or lower in ("items", "options", "data"):
+        return "string[]"
+    return "any"
+
+
+_JSX_SVG_ATTR_MAP: list[tuple[str, str]] = [
+    ("strokeWidth=",     "stroke-width="),
+    ("strokeLinecap=",   "stroke-linecap="),
+    ("strokeLinejoin=",  "stroke-linejoin="),
+    ("strokeDasharray=", "stroke-dasharray="),
+    ("strokeDashoffset=","stroke-dashoffset="),
+    ("strokeOpacity=",   "stroke-opacity="),
+    ("fillOpacity=",     "fill-opacity="),
+    ("fillRule=",        "fill-rule="),
+    ("clipRule=",        "clip-rule="),
+    ("clipPath=",        "clip-path="),
+]
+
+
+def _jsx_svg_to_html(jsx: str) -> str:
+    """Convert JSX SVG attribute names to HTML SVG attribute names."""
+    result = jsx
+    for jsx_attr, html_attr in _JSX_SVG_ATTR_MAP:
+        result = result.replace(jsx_attr, html_attr)
+    return result
+
+
+def _extract_icon_objects(text: str) -> dict[str, dict[str, str]]:
+    """Find const XxxIcons = { key: <svg>...</svg>, ... } blocks and return
+    a mapping of icon-object-name → {key: svg_html_string}.
+    """
+    icons: dict[str, dict[str, str]] = {}
+    header_re = re.compile(r"const\s+([A-Za-z]+Icons)\s*=\s*\{")
+    for hm in header_re.finditer(text):
+        obj_name = hm.group(1)
+        # Walk forward from { to find the balanced closing }
+        start = hm.end() - 1  # position of opening {
+        depth = 0
+        end = start
+        for i in range(start, len(text)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end == start:
+            continue
+        body = text[start + 1:end]
+
+        # Extract each key: <svg...>...</svg> or key: <svg .../> entry
+        entry_re = re.compile(
+            r"(\w+)\s*:\s*(<svg\b[^>]*>.*?</svg>|<svg\b[^/]*/\s*>)",
+            re.DOTALL,
+        )
+        entries: dict[str, str] = {}
+        for em in entry_re.finditer(body):
+            key = em.group(1)
+            svg_html = _jsx_svg_to_html(em.group(2).strip())
+            # Collapse whitespace between tags for a clean single-line string
+            svg_html = re.sub(r">\s+<", "><", svg_html)
+            entries[key] = svg_html
+        if entries:
+            icons[obj_name] = entries
+    return icons
 
 
 def _extract_design_tokens(source_root: Path) -> str:
-    """Extract wfColors, wfFonts, mfColors, mfFonts from source files."""
+    """Extract wfColors, wfFonts, mfColors, mfFonts, and *Icons objects."""
     lines: list[str] = [
         "// Auto-generated by vuemorphic Phase A",
         "// Source: Flora CAD v2 design token files",
@@ -341,6 +446,7 @@ def _extract_design_tokens(source_root: Path) -> str:
 
     token_files = list(source_root.glob("*.jsx")) + list(source_root.glob("*.tsx"))
     found: dict[str, str] = {}
+    found_icons: dict[str, dict[str, str]] = {}
 
     for path in token_files:
         try:
@@ -351,25 +457,35 @@ def _extract_design_tokens(source_root: Path) -> str:
             if token_name in found:
                 continue
             m = re.search(
-                rf"(?:const|var|let)\s+{re.escape(token_name)}\s*=\s*(\{{[^;]+\})",
+                r"(?:const|var|let)\s+" + re.escape(token_name) + r"\s*=\s*(\{[^;]+\})",
                 text,
                 re.DOTALL,
             )
             if m:
                 found[token_name] = m.group(1).strip()
 
+        # Extract icon objects (e.g. MfIcons, WfIcons)
+        for obj_name, entries in _extract_icon_objects(text).items():
+            if obj_name not in found_icons:
+                found_icons[obj_name] = entries
+
     for name, value in found.items():
-        # Convert JS object literal to TypeScript export
-        ts_value = value.replace("//", "//")
-        lines.append(f"export const {name} = {ts_value} as const")
+        lines.append(f"export const {name} = {value} as const")
         lines.append("")
 
     if not found:
         lines.append("// No design tokens found in source — add manually")
-        lines.append("export const wfColors = {} as const")
-        lines.append("export const wfFonts = {} as const")
-        lines.append("export const mfColors = {} as const")
-        lines.append("export const mfFonts = {} as const")
+        for name in ("wfColors", "wfFonts", "mfColors", "mfFonts"):
+            lines.append(f"export const {name} = {{}} as const")
+
+    # Export icon objects as Record<string, string> (SVG HTML strings for v-html)
+    for obj_name, entries in found_icons.items():
+        lines.append(f"export const {obj_name}: Record<string, string> = {{")
+        for key, svg in entries.items():
+            escaped = svg.replace("\\", "\\\\").replace("`", "\\`")
+            lines.append(f"  {key}: `{escaped}`,")
+        lines.append("}")
+        lines.append("")
 
     return "\n".join(lines) + "\n"
 
