@@ -15,6 +15,7 @@ from vuemorphic.graph.nodes import (
     invoke_agent,
     pick_next_node,
     queue_for_review,
+    requeue_node,
     retry_node,
     route_after_supervisor,
     route_after_verify,
@@ -43,6 +44,7 @@ def build_graph(checkpointer=None) -> object:
     graph.add_node("invoke_agent", invoke_agent)
     graph.add_node("verify", verify)
     graph.add_node("retry_node", retry_node)
+    graph.add_node("requeue_node", requeue_node)
     graph.add_node("escalate_node", escalate_node)
     graph.add_node("supervisor_node", supervisor_node)
     graph.add_node("update_manifest", update_manifest)
@@ -63,12 +65,14 @@ def build_graph(checkpointer=None) -> object:
         {
             "update_manifest": "update_manifest",
             "retry": "retry_node",
+            "requeue": "requeue_node",
             "escalate": "escalate_node",
             "supervisor": "supervisor_node",
             "queue_for_review": "queue_for_review",
         },
     )
     graph.add_edge("retry_node", "build_context")
+    graph.add_edge("requeue_node", "pick_next_node")
     graph.add_edge("escalate_node", "build_context")
     graph.add_conditional_edges(
         "supervisor_node",

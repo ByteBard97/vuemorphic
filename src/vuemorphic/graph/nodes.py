@@ -233,13 +233,14 @@ def route_after_verify(state: VuemorphicState) -> str:
     else:
         max_attempts = _MAX_ATTEMPTS.get(tier, _DEFAULT_MAX_ATTEMPTS)
 
-    # CASCADE: errors are in OTHER files, not this one. Count against attempts
-    # so we don't loop forever, but log it clearly.
+    # CASCADE: errors are in OTHER files, not this node's output.
+    # Requeue — do not penalize this node for another file's breakage.
     if state["verify_status"] == VerifyStatus.CASCADE:
         logger.warning(
-            "CASCADE failure for %s (attempt %d/%d) — errors in other files",
-            state.get("current_node_id"), attempt, max_attempts,
+            "CASCADE: %s requeued — vue-tsc errors are in other files, not this component",
+            state.get("current_node_id"),
         )
+        return "requeue"
 
     if attempt >= max_attempts:
         cfg = state.get("config", {})
@@ -254,6 +255,25 @@ def route_after_verify(state: VuemorphicState) -> str:
 
 def retry_node(state: VuemorphicState) -> dict:
     return {"attempt_count": state.get("attempt_count", 0) + 1}
+
+
+def requeue_node(state: VuemorphicState) -> dict:
+    """Reset a cascade-failed node to NOT_STARTED so it retries when the project is clean."""
+    node_id = state["current_node_id"]
+    manifest = Manifest.load(_db(state))
+    manifest.update_node(
+        _db(state), node_id,
+        status=NodeStatus.NOT_STARTED,
+        attempt_count=0,
+        last_error=None,
+    )
+    return {
+        "current_node_id": None,
+        "attempt_count": 0,
+        "last_error": None,
+        "verify_status": None,
+        "failure_analysis": None,
+    }
 
 
 def escalate_node(state: VuemorphicState) -> dict:
