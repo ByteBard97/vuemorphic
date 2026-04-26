@@ -80,6 +80,7 @@ def invoke_claude(
         "--print",
         "--output-format", "json",
         "--dangerously-skip-permissions",
+        "--no-tools",
     ]
     if model:
         cmd += ["--model", model]
