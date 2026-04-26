@@ -65,8 +65,11 @@ def pick_next_node(state: VuemorphicState) -> dict:
             logger.info("All nodes converted or queued. Phase B complete.")
         return {"current_node_id": None, "done": True}
 
-    start_tier = state.get("config", {}).get("start_tier")
-    tier = start_tier or (node.tier.value if node.tier else TranslationTier.HAIKU.value)
+    _TIER_RANK = {TranslationTier.HAIKU.value: 0, TranslationTier.SONNET.value: 1, TranslationTier.OPUS.value: 2}
+    start_tier = state.get("config", {}).get("start_tier") or TranslationTier.HAIKU.value
+    node_tier = node.tier.value if node.tier else start_tier
+    # Use the higher of the two — lets manual escalation override the config default
+    tier = node_tier if _TIER_RANK.get(node_tier, 0) > _TIER_RANK.get(start_tier, 0) else start_tier
     logger.info(
         "Worker %d: processing %s (tier=%s, bfs_level=%s)",
         state.get("worker_id", 0), node.node_id, tier, node.bfs_level,

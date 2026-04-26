@@ -472,6 +472,98 @@ def phase_d(
     typer.echo(f"\nReport written to {target_path.resolve() / 'integration_report.json'}")
 
 
+@app.command("blocked")
+def blocked(
+    db: Path = typer.Option("vuemorphic.db", "--db", help="Path to vuemorphic SQLite manifest DB."),
+) -> None:
+    """Show nodes stuck in human_review and the not-started nodes waiting on them."""
+    from vuemorphic.models.manifest import Manifest
+
+    db = db.resolve()
+    if not db.exists():
+        typer.echo(f"Error: {db} not found.", err=True)
+        raise typer.Exit(1)
+
+    manifest = Manifest.load(db)
+    report = manifest.blocked_report()
+
+    if not report:
+        typer.echo("No blocked nodes.")
+        return
+
+    by_category: dict[str, list[str]] = {}
+    for blocker_id, info in report.items():
+        cat = info["failure_category"] or "unknown"
+        by_category.setdefault(cat, []).append(blocker_id)
+
+    typer.echo(f"\n{'='*60}")
+    typer.echo(f"BLOCKED NODES REPORT — {len(report)} node(s) in human_review")
+    typer.echo(f"{'='*60}\n")
+
+    typer.echo("By category:")
+    for cat, ids in sorted(by_category.items()):
+        typer.echo(f"  {cat:20s}  {len(ids)} node(s): {', '.join(ids)}")
+
+    typer.echo()
+    for blocker_id, info in report.items():
+        waiting = info["waiting"]
+        category = info["failure_category"] or "unknown"
+        analysis = info["failure_analysis"] or "(no diagnosis recorded)"
+
+        typer.echo(f"--- {blocker_id} [{category}] ---")
+        if waiting:
+            typer.echo(f"  Blocking: {', '.join(waiting)}")
+        else:
+            typer.echo("  Blocking: (no dependents — safe to discard)")
+
+        for line in analysis.splitlines():
+            if line.startswith("FIX:"):
+                typer.echo(f"  {line}")
+                break
+        typer.echo()
+
+
+@app.command("escalate")
+def escalate(
+    node_id: str = typer.Argument(..., help="node_id to escalate (must be in human_review)"),
+    db: Path = typer.Option("vuemorphic.db", "--db", help="Path to vuemorphic SQLite manifest DB."),
+    tier: str = typer.Option("sonnet", "--tier", help="Tier to escalate to: sonnet | opus"),
+) -> None:
+    """Manually escalate a single human_review node to a higher model tier.
+
+    Resets the node to not_started and clears attempt_count so Phase B picks it up next run.
+    Run 'vuemorphic blocked' first to see candidates and their failure analyses.
+    """
+    from vuemorphic.models.manifest import Manifest, NodeStatus, TranslationTier
+
+    valid_tiers = {t.value for t in TranslationTier}
+    if tier not in valid_tiers:
+        typer.echo(f"Error: --tier must be one of {sorted(valid_tiers)}", err=True)
+        raise typer.Exit(1)
+
+    db = db.resolve()
+    if not db.exists():
+        typer.echo(f"Error: {db} not found.", err=True)
+        raise typer.Exit(1)
+
+    manifest = Manifest.load(db)
+    node = manifest.get_node(node_id)
+    if node is None:
+        typer.echo(f"Error: node '{node_id}' not found in DB.", err=True)
+        raise typer.Exit(1)
+
+    manifest.update_node(
+        db,
+        node_id,
+        status=NodeStatus.NOT_STARTED,
+        tier=TranslationTier(tier),
+        attempt_count=0,
+        last_error=None,
+    )
+    typer.echo(f"Escalated {node_id}: human_review → not_started (tier={tier})")
+    typer.echo(f"Run 'vuemorphic phase-b --db {db} --max-nodes 1' to process it.")
+
+
 @app.command("serve")
 def serve(
     config: Path = typer.Option("vuemorphic.config.json", "--config", "-c"),

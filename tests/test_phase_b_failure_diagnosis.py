@@ -162,3 +162,26 @@ def test_queue_for_review_stores_failure_analysis(tmp_path):
     assert loaded.status == NodeStatus.HUMAN_REVIEW
     assert loaded.failure_category == "complexity"
     assert "complexity" in loaded.failure_analysis
+
+
+# ── Task 6: escalated tier override ──────────────────────────────────────────
+
+def test_escalated_node_picks_sonnet_tier(tmp_path):
+    """After escalate sets node.tier=sonnet, pick_next_node uses sonnet not start_tier haiku."""
+    from vuemorphic.graph.nodes import pick_next_node
+    from vuemorphic.models.manifest import ConversionNode, NodeKind, NodeStatus, TranslationTier, Manifest
+
+    db = tmp_path / "m.db"
+    node = ConversionNode(
+        node_id="HardComp", source_file="f.jsx", line_start=1, line_end=5,
+        source_text="const HardComp = () => <div/>", node_kind=NodeKind.REACT_COMPONENT,
+        status=NodeStatus.NOT_STARTED,
+        tier=TranslationTier.SONNET,
+    )
+    Manifest(db, nodes={"HardComp": node})
+
+    state = base_vuemorphic_state(str(db), config={
+        "start_tier": "haiku", "package_inventory": [], "architectural_decisions": {}, "model_tiers": {},
+    })
+    result = pick_next_node(state)
+    assert result["current_tier"] == "sonnet"
