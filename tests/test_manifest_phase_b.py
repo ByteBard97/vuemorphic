@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from oxidant.models.manifest import (
+from vuemorphic.models.manifest import (
     ConversionNode, Manifest, NodeKind, NodeStatus, TranslationTier
 )
 
@@ -98,3 +98,60 @@ def test_auto_convert_skips_already_converted(tmp_path):
     )
     count = manifest.auto_convert_structural_nodes(db_path)
     assert count == 1
+
+
+def test_phase_b_hard_stops_on_human_review_child(tmp_path):
+    """End-to-end: Phase B stops when a child is human_review, parent stays NOT_STARTED."""
+    from vuemorphic.models.manifest import ConversionNode, NodeKind, NodeStatus, Manifest, TranslationTier
+    from vuemorphic.graph.graph import translation_graph
+    from vuemorphic.graph.state import VuemorphicState
+
+    db = tmp_path / "m.db"
+    child = ConversionNode(
+        node_id="StuckChild", source_file="f.jsx", line_start=1, line_end=5,
+        source_text="const StuckChild = () => <div/>", node_kind=NodeKind.REACT_COMPONENT,
+        status=NodeStatus.HUMAN_REVIEW,
+        tier=TranslationTier.HAIKU,
+    )
+    parent = ConversionNode(
+        node_id="WaitingParent", source_file="f.jsx", line_start=10, line_end=20,
+        source_text="const WaitingParent = () => <StuckChild/>", node_kind=NodeKind.REACT_COMPONENT,
+        call_dependencies=["StuckChild"],
+        tier=TranslationTier.HAIKU,
+    )
+    Manifest(db, nodes={"StuckChild": child, "WaitingParent": parent})
+
+    snippets = tmp_path / "snippets"
+    snippets.mkdir()
+    vue_project = tmp_path / "vue-project"
+    (vue_project / "src" / "components").mkdir(parents=True)
+
+    state = VuemorphicState(
+        db_path=str(db),
+        target_vue_path=str(vue_project),
+        snippets_dir=str(snippets),
+        config={"package_inventory": [], "architectural_decisions": {}, "model_tiers": {}, "start_tier": "haiku"},
+        worker_id=0,
+        current_node_id=None,
+        current_prompt=None,
+        current_vue_content=None,
+        current_tier=None,
+        attempt_count=0,
+        last_error=None,
+        verify_status=None,
+        review_queue=[],
+        done=False,
+        max_nodes=None,
+        nodes_this_run=0,
+        supervisor_hint=None,
+        interrupt_payload=None,
+        review_mode="auto",
+        failure_analysis=None,
+    )
+
+    final = translation_graph.invoke(state)
+    assert final["done"] is True
+
+    manifest = Manifest.load(db)
+    parent_node = manifest.get_node("WaitingParent")
+    assert parent_node.status == NodeStatus.NOT_STARTED
