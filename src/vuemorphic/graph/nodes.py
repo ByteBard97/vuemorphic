@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 _MAX_ATTEMPTS: dict[str, int] = {"haiku": 3, "sonnet": 4, "opus": 5}
 _DEFAULT_MAX_ATTEMPTS = 3
 
+_BLOCKED_DELIMITER = "---BLOCKED---"
+_CATEGORY_RE = re.compile(r"^CATEGORY:\s*(\S+)", re.MULTILINE)
+
 
 def _db(state: VuemorphicState) -> Path:
     return Path(state["db_path"])
@@ -99,6 +102,7 @@ def build_context(state: VuemorphicState) -> dict:
         last_error=state.get("last_error"),
         attempt_count=state.get("attempt_count", 0),
         supervisor_hint=state.get("supervisor_hint"),
+        previous_failure_analysis=state.get("failure_analysis"),
     )
     return {"current_prompt": prompt, "supervisor_hint": None}
 
@@ -150,7 +154,17 @@ def invoke_agent(state: VuemorphicState) -> dict:
                 prompt_log_dir=prompt_log_dir,
                 label=label,
             )
-        return {"current_vue_content": response, "last_error": None}
+        # Strip ---BLOCKED--- form from the Vue content before verification.
+        failure_analysis: str | None = None
+        if _BLOCKED_DELIMITER in response:
+            vue_part, blocked_part = response.split(_BLOCKED_DELIMITER, 1)
+            failure_analysis = blocked_part.strip() or None
+            response = vue_part
+        return {
+            "current_vue_content": response,
+            "last_error": None,
+            "failure_analysis": failure_analysis,
+        }
     except Exception as exc:  # noqa: BLE001
         logger.error("invoke_claude failed for %s: %s", node_id, exc)
         err_log = prompt_log_dir / f"{safe_node}__{tier}_attempt{attempt}_error.txt"
@@ -159,7 +173,7 @@ def invoke_agent(state: VuemorphicState) -> dict:
             err_log.write_text(str(exc))
         except Exception:  # noqa: BLE001
             pass
-        return {"current_vue_content": None, "last_error": str(exc)}
+        return {"current_vue_content": None, "last_error": str(exc), "failure_analysis": None}
 
 
 def verify(state: VuemorphicState) -> dict:
@@ -301,12 +315,18 @@ def queue_for_review(state: VuemorphicState) -> dict:
     manifest = Manifest.load(_db(state))
     node = manifest.get_node(node_id) or manifest.nodes[node_id]
 
+    raw_analysis = state.get("failure_analysis") or ""
+    category_match = _CATEGORY_RE.search(raw_analysis)
+    failure_category = category_match.group(1) if category_match else None
+
     manifest.update_node(
         _db(state),
         node_id,
         status=NodeStatus.HUMAN_REVIEW,
         attempt_count=state.get("attempt_count", 0),
         last_error=state.get("last_error"),
+        failure_category=failure_category,
+        failure_analysis=raw_analysis or None,
     )
 
     entry = {

@@ -88,3 +88,77 @@ def test_retry_prompt_includes_previous_failure_analysis(minimal_node, minimal_m
     )
     assert "CATEGORY: info_gap" in prompt
     assert "Is this diagnosis correct" in prompt
+
+
+# ── Task 5: parse ---BLOCKED--- in invoke_agent ───────────────────────────────
+
+def test_invoke_agent_strips_blocked_form_from_vue_content(tmp_path, monkeypatch):
+    """---BLOCKED--- and everything after it is stripped from current_vue_content."""
+    from vuemorphic.graph.nodes import invoke_agent
+    from vuemorphic.models.manifest import ConversionNode, NodeKind, Manifest
+
+    raw_response = (
+        "<template><div>hello</div></template>\n"
+        "<script setup lang='ts'>\n</script>\n"
+        "---SUMMARY---\nDoes a thing.\n"
+        "---BLOCKED---\n"
+        "CATEGORY: info_gap\nMISSING: prop shape\nTRIED: guessing\nFIX: inject source\n"
+    )
+    monkeypatch.setattr("vuemorphic.graph.nodes.invoke_claude", lambda **kw: raw_response)
+    db = tmp_path / "m.db"
+    node = ConversionNode(
+        node_id="Foo", source_file="f.jsx", line_start=1, line_end=5,
+        source_text="const Foo = () => <div/>", node_kind=NodeKind.REACT_COMPONENT,
+    )
+    Manifest(db, nodes={"Foo": node})
+
+    state = base_vuemorphic_state(str(db), current_node_id="Foo", current_tier="haiku")
+    result = invoke_agent(state)
+
+    assert "---BLOCKED---" not in result["current_vue_content"]
+    assert "CATEGORY: info_gap" in result["failure_analysis"]
+
+
+def test_invoke_agent_failure_analysis_none_when_no_blocked_form(tmp_path, monkeypatch):
+    """failure_analysis is None when the agent response has no ---BLOCKED--- section."""
+    from vuemorphic.graph.nodes import invoke_agent
+    from vuemorphic.models.manifest import ConversionNode, NodeKind, Manifest
+
+    raw_response = "<template><div/></template>\n<script setup lang='ts'></script>\n---SUMMARY---\nDoes a thing."
+    monkeypatch.setattr("vuemorphic.graph.nodes.invoke_claude", lambda **kw: raw_response)
+    db = tmp_path / "m.db"
+    node = ConversionNode(
+        node_id="Bar", source_file="f.jsx", line_start=1, line_end=5,
+        source_text="const Bar = () => <div/>", node_kind=NodeKind.REACT_COMPONENT,
+    )
+    Manifest(db, nodes={"Bar": node})
+    state = base_vuemorphic_state(str(db), current_node_id="Bar", current_tier="haiku")
+    result = invoke_agent(state)
+    assert result.get("failure_analysis") is None
+
+
+def test_queue_for_review_stores_failure_analysis(tmp_path):
+    """queue_for_review writes failure_category and failure_analysis to the DB."""
+    from vuemorphic.graph.nodes import queue_for_review
+    from vuemorphic.models.manifest import ConversionNode, NodeKind, Manifest, NodeStatus
+
+    db = tmp_path / "m.db"
+    node = ConversionNode(
+        node_id="Baz", source_file="f.jsx", line_start=1, line_end=5,
+        source_text="const Baz = () => <div/>", node_kind=NodeKind.REACT_COMPONENT,
+    )
+    Manifest(db, nodes={"Baz": node})
+
+    analysis = "CATEGORY: complexity\nMISSING: nothing\nTRIED: all\nFIX: use sonnet"
+    state = base_vuemorphic_state(
+        str(db), current_node_id="Baz", current_tier="haiku",
+        attempt_count=3, last_error="vue-tsc failed",
+        failure_analysis=analysis,
+    )
+    queue_for_review(state)
+
+    manifest = Manifest.load(db)
+    loaded = manifest.get_node("Baz")
+    assert loaded.status == NodeStatus.HUMAN_REVIEW
+    assert loaded.failure_category == "complexity"
+    assert "complexity" in loaded.failure_analysis
