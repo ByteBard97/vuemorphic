@@ -156,6 +156,67 @@ def test_node_record_roundtrip_failure_fields(tmp_path):
     assert "info_gap" in loaded.failure_analysis
 
 
+def test_claim_next_eligible_hard_stops_when_child_in_human_review(tmp_path):
+    """When all not-started nodes have unconverted deps, claim returns None (hard stop)."""
+    db = tmp_path / "test.db"
+    child = ConversionNode(
+        node_id="Child", source_file="f.jsx", line_start=1, line_end=5,
+        source_text="const Child = () => <div/>", node_kind=NodeKind.REACT_COMPONENT,
+        status=NodeStatus.HUMAN_REVIEW,
+    )
+    parent = ConversionNode(
+        node_id="Parent", source_file="f.jsx", line_start=10, line_end=20,
+        source_text="const Parent = () => <Child/>", node_kind=NodeKind.REACT_COMPONENT,
+        call_dependencies=["Child"],
+    )
+    manifest = Manifest(db, nodes={"Child": child, "Parent": parent})
+    result = manifest.claim_next_eligible()
+    assert result is None
+
+
+def test_claim_next_eligible_returns_none_reports_blockers(tmp_path, caplog):
+    """When claim returns None due to blockers, logs which nodes are blocking."""
+    import logging
+    db = tmp_path / "test.db"
+    child = ConversionNode(
+        node_id="BlockedChild", source_file="f.jsx", line_start=1, line_end=5,
+        source_text="const BlockedChild = () => <div/>", node_kind=NodeKind.REACT_COMPONENT,
+        status=NodeStatus.HUMAN_REVIEW,
+    )
+    parent = ConversionNode(
+        node_id="WaitingParent", source_file="f.jsx", line_start=10, line_end=20,
+        source_text="const WaitingParent = () => <BlockedChild/>", node_kind=NodeKind.REACT_COMPONENT,
+        call_dependencies=["BlockedChild"],
+    )
+    manifest = Manifest(db, nodes={"BlockedChild": child, "WaitingParent": parent})
+    with caplog.at_level(logging.WARNING):
+        result = manifest.claim_next_eligible()
+    assert result is None
+    assert "BlockedChild" in caplog.text
+
+
+def test_blocked_report(tmp_path):
+    """blocked_report returns dict mapping human_review node_ids to lists of waiting node_ids."""
+    db = tmp_path / "test.db"
+    child = ConversionNode(
+        node_id="FailedChild", source_file="f.jsx", line_start=1, line_end=5,
+        source_text="const FailedChild = () => <div/>", node_kind=NodeKind.REACT_COMPONENT,
+        status=NodeStatus.HUMAN_REVIEW,
+        failure_category="complexity",
+        failure_analysis="CATEGORY: complexity\nMISSING: nothing\nFIX: needs sonnet",
+    )
+    parent = ConversionNode(
+        node_id="StuckParent", source_file="f.jsx", line_start=10, line_end=20,
+        source_text="const StuckParent = () => <FailedChild/>", node_kind=NodeKind.REACT_COMPONENT,
+        call_dependencies=["FailedChild"],
+    )
+    manifest = Manifest(db, nodes={"FailedChild": child, "StuckParent": parent})
+    report = manifest.blocked_report()
+    assert "FailedChild" in report
+    assert "StuckParent" in report["FailedChild"]["waiting"]
+    assert report["FailedChild"]["failure_category"] == "complexity"
+
+
 def test_topological_sort_cycle_gets_fallback_order():
     """Cycles don't raise — both nodes get distinct fallback topological orders."""
     nodes = {

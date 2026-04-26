@@ -353,11 +353,25 @@ class Manifest:
             if complexity_max is not None:
                 not_started = [r for r in not_started if (r["cyclomatic_complexity"] or 1) <= complexity_max]
             strict = [r for r in not_started if _dep_count(r) == 0]
-            candidates = strict if strict else sorted(not_started, key=_dep_count)
 
-            if not candidates:
+            if not strict:
+                # Hard stop: every remaining node is waiting on an unconverted dep.
+                # Log which nodes are blocking so the operator knows what to fix.
+                blocking: dict[str, list[str]] = {}
+                for r in not_started:
+                    deps = _json.loads(r["type_dependencies"]) + _json.loads(r["call_dependencies"])
+                    blockers = [d for d in deps if d in manifest_ids and d not in converted]
+                    for b in blockers:
+                        blocking.setdefault(b, []).append(r["node_id"])
+                for blocker, waiters in blocking.items():
+                    logger.warning(
+                        "BLOCKED: %s is holding up %d node(s): %s",
+                        blocker, len(waiters), waiters[:5],
+                    )
                 con.rollback()
                 return None
+
+            candidates = strict
 
             # Primary: topological order. Secondary: source length (short = easy first)
             best = min(candidates, key=lambda r: (r["topological_order"] or 0, r["src_len"] or 0))
@@ -504,6 +518,35 @@ class Manifest:
                     row.bfs_level = bfs
                     session.add(row)
             session.commit()
+
+    def blocked_report(self) -> dict[str, dict]:
+        """Return a mapping of human_review node_ids to their waiters and failure info.
+
+        Return type: {blocker_node_id: {"waiting": [waiter_ids], "failure_category": str|None, "failure_analysis": str|None}}
+        """
+        from vuemorphic.models.db import NodeRecord
+
+        with Session(self._engine) as session:
+            all_rows = session.exec(select(NodeRecord)).all()
+
+        human_review = {r.node_id: r for r in all_rows if r.status == NodeStatus.HUMAN_REVIEW.value}
+        not_started = [r for r in all_rows if r.status == NodeStatus.NOT_STARTED.value]
+
+        report: dict[str, dict] = {}
+        for blocker_id, blocker_row in human_review.items():
+            report[blocker_id] = {
+                "waiting": [],
+                "failure_category": blocker_row.failure_category,
+                "failure_analysis": blocker_row.failure_analysis,
+            }
+
+        for row in not_started:
+            deps = json.loads(row.type_dependencies) + json.loads(row.call_dependencies)
+            for d in deps:
+                if d in human_review:
+                    report[d]["waiting"].append(row.node_id)
+
+        return report
 
     # ── Compatibility: model_validate_json (used by old code paths in Phase A) ──
 
