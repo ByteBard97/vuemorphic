@@ -287,6 +287,31 @@ def escalate_node(state: VuemorphicState) -> dict:
 _SUMMARY_DELIMITER = "---SUMMARY---"
 
 
+def _git_commit_conversion(
+    vue_path: Path,
+    node_id: str,
+    summary: str | None,
+    tier: str | None,
+) -> None:
+    """Stage and commit the converted .vue file inside the Vue target project.
+
+    Silently skips if the directory is not a git repo (e.g. during tests).
+    The agent's ---SUMMARY--- text becomes the commit message body.
+    """
+    import subprocess as _sp
+    target_dir = vue_path.parent.parent.parent  # corpora/claude-design-vue/
+    if not (target_dir / ".git").exists():
+        return
+    rel_path = vue_path.relative_to(target_dir)
+    body = summary.strip() if summary else ""
+    commit_msg = f"feat(convert): {node_id} [{tier or 'haiku'}]\n\n{body}"
+    try:
+        _sp.run(["git", "add", str(rel_path)], cwd=target_dir, check=True, capture_output=True)
+        _sp.run(["git", "commit", "-m", commit_msg], cwd=target_dir, check=True, capture_output=True)
+    except _sp.CalledProcessError as exc:
+        logger.warning("git commit failed for %s: %s", node_id, exc.stderr.decode()[:200])
+
+
 def update_manifest(state: VuemorphicState) -> dict:
     """Save the .vue file to disk and mark the node CONVERTED in the DB.
 
@@ -331,6 +356,7 @@ def update_manifest(state: VuemorphicState) -> dict:
         summary_text=summary,
     )
     logger.info("CONVERTED: %s → %s", node_id, vue_path)
+    _git_commit_conversion(vue_path, node_id, summary, state.get("current_tier"))
     return {
         "nodes_this_run": state.get("nodes_this_run", 0) + 1,
         "current_node_id": node_id,
