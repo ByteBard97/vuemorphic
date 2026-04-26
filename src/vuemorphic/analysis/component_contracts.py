@@ -323,6 +323,9 @@ def _synthesise_props(
         # Skip callback props (onX) — they become emits, not props
         if re.match(r"^on[A-Z]", name):
             continue
+        # Skip children — becomes <slot /> in Vue, not a prop
+        if name == "children":
+            continue
 
         prop_lines.append(f"  {name}: {ts_type}")
 
