@@ -2,8 +2,8 @@
 
 Wires all node functions into a compilable StateGraph. Two compiled graphs are
 exposed:
-- ``translation_graph``: no checkpointer, for direct CLI use (``oxidant phase-b``)
-- ``build_checkpointed_graph(db_path)``: SqliteSaver checkpointer for ``oxidant serve``
+- ``translation_graph``: no checkpointer, for direct CLI use (``vuemorphic phase-b``)
+- ``build_checkpointed_graph(db_path)``: SqliteSaver checkpointer for ``vuemorphic serve``
 """
 from __future__ import annotations
 
@@ -85,7 +85,7 @@ def build_graph(checkpointer=None) -> object:
 
 
 def build_checkpointed_graph(db_path: str) -> object:
-    """Build a graph with SqliteSaver for use by ``oxidant serve``.
+    """Build a graph with SqliteSaver for use by ``vuemorphic serve``.
 
     Args:
         db_path: Absolute path to the SQLite checkpoint file (created if absent).
@@ -97,5 +97,5 @@ def build_checkpointed_graph(db_path: str) -> object:
     return build_graph(checkpointer=checkpointer)
 
 
-# Compiled graph without checkpointer — used by ``oxidant phase-b`` CLI
+# Compiled graph without checkpointer — used by ``vuemorphic phase-b`` CLI
 translation_graph = build_graph()
