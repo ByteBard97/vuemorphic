@@ -367,20 +367,26 @@ def phase_b(
     if parallelism > 1:
         import asyncio
         from vuemorphic.graph.graph import build_graph
-        from vuemorphic.graph.nodes import setup_worker_clones
+        from vuemorphic.graph.nodes import setup_worker_clones, teardown_worker_clones
 
         typer.echo(f"Parallel mode: {parallelism} workers")
-        setup_worker_clones(target_path, parallelism)
+        worktrees = setup_worker_clones(target_path, parallelism)
 
         async def run_parallel() -> list[dict]:
             graphs = [build_graph() for _ in range(parallelism)]
             coros = [
-                g.ainvoke({**initial_state, "worker_id": i})
-                for i, g in enumerate(graphs)
+                g.ainvoke({
+                    **initial_state,
+                    "worker_id": i,
+                    "target_vue_path": str(wt),
+                })
+                for i, (g, wt) in enumerate(zip(graphs, worktrees))
             ]
             return list(await asyncio.gather(*coros))
 
         results = asyncio.run(run_parallel())
+        teardown_worker_clones(target_path, parallelism)
+
         # Merge review queues from all workers
         review_queue: list[dict] = []
         for r in results:

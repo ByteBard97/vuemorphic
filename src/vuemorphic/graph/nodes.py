@@ -284,6 +284,77 @@ def escalate_node(state: VuemorphicState) -> dict:
     return {"current_tier": next_tier, "attempt_count": 0}
 
 
+def setup_worker_clones(target_path: Path, parallelism: int) -> list[Path]:
+    """Create N git worktrees of the Vue target project for isolated parallel verification.
+
+    Each worktree gets its own branch (worker-0, worker-1, ...) and a symlink to
+    node_modules/ from the main clone so vue-tsc doesn't need a separate install.
+
+    Returns the list of worktree paths (one per worker).
+    """
+    import subprocess as _sp
+    import shutil as _sh
+
+    worktrees: list[Path] = []
+    main_modules = target_path / "node_modules"
+
+    for i in range(parallelism):
+        wt_path = target_path.parent / f"{target_path.name}-worker-{i}"
+        branch = f"worker-{i}"
+
+        # Remove stale worktree if it exists
+        if wt_path.exists():
+            _sp.run(["git", "worktree", "remove", "--force", str(wt_path)],
+                    cwd=target_path, capture_output=True)
+            if wt_path.exists():
+                _sh.rmtree(wt_path)
+
+        # Delete stale branch if it exists
+        _sp.run(["git", "branch", "-D", branch], cwd=target_path, capture_output=True)
+
+        _sp.run(
+            ["git", "worktree", "add", "-b", branch, str(wt_path), "HEAD"],
+            cwd=target_path, check=True, capture_output=True,
+        )
+
+        # Symlink node_modules so vue-tsc resolves without a fresh install
+        wt_modules = wt_path / "node_modules"
+        if not wt_modules.exists() and main_modules.exists():
+            wt_modules.symlink_to(main_modules)
+
+        worktrees.append(wt_path)
+        logger.info("Worker %d: worktree at %s (branch %s)", i, wt_path, branch)
+
+    return worktrees
+
+
+def teardown_worker_clones(target_path: Path, parallelism: int) -> None:
+    """Merge each worker branch back to main and remove its worktree."""
+    import subprocess as _sp
+
+    for i in range(parallelism):
+        wt_path = target_path.parent / f"{target_path.name}-worker-{i}"
+        branch = f"worker-{i}"
+        try:
+            # Cherry-pick all commits from the worker branch onto main
+            # Each commit is a single .vue file — no conflicts possible
+            worker_commits = _sp.run(
+                ["git", "log", "--format=%H", f"HEAD..{branch}"],
+                cwd=target_path, capture_output=True, text=True, check=True,
+            ).stdout.strip().split()
+            for sha in reversed(worker_commits):  # oldest first
+                _sp.run(["git", "cherry-pick", sha],
+                        cwd=target_path, check=True, capture_output=True)
+            # Remove the worktree and branch
+            _sp.run(["git", "worktree", "remove", "--force", str(wt_path)],
+                    cwd=target_path, capture_output=True)
+            _sp.run(["git", "branch", "-D", branch],
+                    cwd=target_path, capture_output=True)
+            logger.info("Merged worker-%d (%d commits) → main", i, len(worker_commits))
+        except _sp.CalledProcessError as exc:
+            logger.error("Failed to merge worker-%d: %s", i, exc.stderr.decode()[:300])
+
+
 _SUMMARY_DELIMITER = "---SUMMARY---"
 
 
