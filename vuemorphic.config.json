@@ -14,7 +14,7 @@
     "haiku": "claude-haiku-4-5-20251001",
     "sonnet": "claude-sonnet-4-6"
   },
-  "max_attempts": {"haiku": 3, "sonnet": 2},
+  "max_attempts": {"haiku": 1, "sonnet": 1},
   "start_tier": "haiku",
   "no_escalate": true,
   "parallelism": 1,
