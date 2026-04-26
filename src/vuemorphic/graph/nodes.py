@@ -73,7 +73,7 @@ def pick_next_node(state: VuemorphicState) -> dict:
     # This ensures removing a tier from config is a hard guard — Phase A classifications
     # for that tier fall back to the highest available one.
     preferred = node_tier if _TIER_RANK.get(node_tier, 0) > _TIER_RANK.get(start_tier, 0) else start_tier
-    if preferred not in available_tiers:
+    if preferred not in available_tiers and available_tiers:
         # Cap down to highest available tier
         preferred = max(available_tiers, key=lambda t: _TIER_RANK.get(t, 0))
     tier = preferred

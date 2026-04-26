@@ -13,76 +13,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from vuemorphic.agents.prompt_template import render_prompt
 from vuemorphic.models.manifest import ConversionNode, Manifest
-
-_PROMPT_TEMPLATE = """\
-You are converting one React JSX component to a Vue 3 SFC as part of porting Claude Design artifacts.
-
-## Your job
-1. Read the React source to understand the component's logic and structure
-2. Read the Vue skeleton — it has the correct <script setup> envelope and TODO(vuemorphic): markers
-3. Fill in every TODO(vuemorphic): marker — do NOT leave any behind
-4. The output must be the complete .vue file with no markdown fences, no explanation
-
-## Files
-- React source: {jsx_source_path} (lines {line_start}--{line_end})
-- Vue skeleton (your starting point): {vue_skeleton_path}
-- Output .vue path: {vue_output_path}
-- Component: `{node_id}`
-
-## React Source
-```jsx
-{source_text}
-```
-
-## Vue Skeleton
-```vue
-{skeleton_text}
-```
-
-## Rules
-- Fill in ALL TODO(vuemorphic): markers — any leftover marker is a verification failure
-- Do NOT add // TODO or // FIXME comments — post-filter will reject them
-- Do NOT leave any React idioms: no className=, no import React, no useState, no JSX.Element
-- Use the composition API with <script setup lang="ts"> — no Options API
-- Translate semantically faithfully — match every branch in the React source
-- Props interface comes from the skeleton — you MAY narrow `any` types to something more specific if the React source makes the shape clear (e.g. `any` → `Record<string, {{ slotIds: string[] }}>`), but do not remove or rename props
-- Use defineProps/defineEmits exactly as scaffolded in the skeleton
-- Approved packages: {packages}
-
-## Architectural Decisions
-{arch_decisions}
-{deps_section}\
-{transitive_section}\
-{idiom_section}\
-{supervisor_section}\
-{retry_section}\
-{unfurl_section}\
-Output two things separated by the literal line `---SUMMARY---`:
-1. The complete .vue file content (no markdown fences, no explanation)
-2. 1-2 sentences describing what this component does (used as context for callers)
-
-Example format:
-<template>
-  <div class="sidebar">...</div>
-</template>
-
-<script setup lang="ts">
-...
-</script>
----SUMMARY---
-Renders the sidebar navigation. Accepts items array and emits select event on click.
-
-## If You Cannot Complete This Conversion
-If the Vue output you produce cannot pass verification, fill in the section below after your ---SUMMARY--- line.
-Use exactly this format (one line per key, no extra blank lines between keys):
-
----BLOCKED---
-CATEGORY: [choose one: info_gap | prompt_confusion | tooling | complexity | cascade | unknown]
-MISSING:  [what specific information or capability was absent — be concrete]
-TRIED:    [what approaches you attempted before giving up]
-FIX:      [one concrete change to the harness, prompt, or context that would have helped]\
-"""
 
 
 def _load_dep_snippets(
@@ -363,17 +295,17 @@ def build_prompt(
     vue_skeleton_path = (target_vue_path / "src" / "components" / f"{node.node_id}.vue").resolve()
     vue_output_path = vue_skeleton_path  # same file — agent fills in the skeleton
 
-    return _PROMPT_TEMPLATE.format(
-        packages=packages,
-        arch_decisions=arch_lines,
+    return render_prompt(
         node_id=node.node_id,
-        jsx_source_path=jsx_source_path,
-        vue_skeleton_path=vue_skeleton_path,
-        vue_output_path=vue_output_path,
+        jsx_source_path=str(jsx_source_path),
+        vue_skeleton_path=str(vue_skeleton_path),
+        vue_output_path=str(vue_output_path),
         line_start=node.line_start,
         line_end=node.line_end,
         source_text=node.source_text,
         skeleton_text=skeleton_text,
+        packages=packages,
+        arch_decisions=arch_lines,
         deps_section=deps_section,
         transitive_section=transitive_section,
         idiom_section=idiom_section,
