@@ -71,7 +71,17 @@ Example format:
 ...
 </script>
 ---SUMMARY---
-Renders the sidebar navigation. Accepts items array and emits select event on click.\
+Renders the sidebar navigation. Accepts items array and emits select event on click.
+
+## If You Cannot Complete This Conversion
+If the Vue output you produce cannot pass verification, fill in the section below after your ---SUMMARY--- line.
+Use exactly this format (one line per key, no extra blank lines between keys):
+
+---BLOCKED---
+CATEGORY: [choose one: info_gap | prompt_confusion | tooling | complexity | cascade | unknown]
+MISSING:  [what specific information or capability was absent — be concrete]
+TRIED:    [what approaches you attempted before giving up]
+FIX:      [one concrete change to the harness, prompt, or context that would have helped]\
 """
 
 
@@ -281,6 +291,7 @@ def build_prompt(
     last_error: str | None = None,
     attempt_count: int = 0,
     supervisor_hint: str | None = None,
+    previous_failure_analysis: str | None = None,
 ) -> str:
     """Build the full conversion prompt for one manifest node."""
     packages = ", ".join(config.get("package_inventory", []))
@@ -312,9 +323,19 @@ def build_prompt(
 
     retry_section = ""
     if attempt_count > 0 and last_error:
+        diagnosis_block = ""
+        if previous_failure_analysis:
+            diagnosis_block = (
+                f"\nThe previous agent diagnosed the blocker as:\n"
+                f"```\n{previous_failure_analysis}\n```\n"
+                f"**First assess:** Is this diagnosis correct? "
+                f"If yes, attempt a concrete workaround. "
+                f"If no, describe what is actually wrong and try a different approach.\n"
+            )
         retry_section = (
             f"\n## Previous Attempt Failed (attempt {attempt_count})\n"
-            f"Fix this error:\n```\n{last_error}\n```\n"
+            f"The previous agent reported this verification error:\n```\n{last_error}\n```\n"
+            f"{diagnosis_block}"
         )
 
     # JIT Unfurling: on retry, load full .vue files for components named in the error
