@@ -94,7 +94,9 @@ class ConversionNode(BaseModel):
     snippet_path: Optional[str] = None
     attempt_count: int = 0
     last_error: Optional[str] = None
-    summary_text: Optional[str] = None  # 1-2 sentence description written by the converting agent
+    summary_text:     Optional[str] = None  # 1-2 sentence description written by the converting agent
+    failure_category: Optional[str] = None
+    failure_analysis: Optional[str] = None
 
 
 # ── Schema migrations ──────────────────────────────────────────────────────────
@@ -116,7 +118,9 @@ def _migrate_schema(engine) -> None:
 
         migrations = [
             # (column_name, ALTER TABLE statement)
-            ("summary_text", "ALTER TABLE nodes ADD COLUMN summary_text TEXT"),
+            ("summary_text",     "ALTER TABLE nodes ADD COLUMN summary_text TEXT"),
+            ("failure_category", "ALTER TABLE nodes ADD COLUMN failure_category TEXT"),
+            ("failure_analysis", "ALTER TABLE nodes ADD COLUMN failure_analysis TEXT"),
         ]
 
         for col, sql in migrations:
@@ -249,6 +253,8 @@ class Manifest:
                     attempt_count=node.attempt_count,
                     last_error=node.last_error,
                     summary_text=node.summary_text,
+                    failure_category=node.failure_category,
+                    failure_analysis=node.failure_analysis,
                 )
                 session.add(row)
             session.commit()

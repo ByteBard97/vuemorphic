@@ -50,7 +50,9 @@ class NodeRecord(SQLModel, table=True):
     snippet_path:  Optional[str] = None
     attempt_count: int = 0
     last_error:    Optional[str] = None
-    summary_text:  Optional[str] = None  # 1-2 sentence description written by the converting agent
+    summary_text:     Optional[str] = None  # 1-2 sentence description written by the converting agent
+    failure_category: Optional[str] = None  # info_gap | prompt_confusion | tooling | complexity | cascade | unknown
+    failure_analysis: Optional[str] = None  # raw ---BLOCKED--- form text from the agent
 
     # ── JSON-serialized compound fields ────────────────────────────────────
     # Stored as JSON strings; deserialized in to_conversion_node()
@@ -85,6 +87,8 @@ class NodeRecord(SQLModel, table=True):
             attempt_count=self.attempt_count,
             last_error=self.last_error,
             summary_text=self.summary_text,
+            failure_category=self.failure_category,
+            failure_analysis=self.failure_analysis,
             parameter_types=json.loads(self.parameter_types),
             type_dependencies=json.loads(self.type_dependencies),
             call_dependencies=json.loads(self.call_dependencies),
@@ -114,6 +118,8 @@ class NodeRecord(SQLModel, table=True):
             attempt_count=node.attempt_count,
             last_error=node.last_error,
             summary_text=node.summary_text,
+            failure_category=node.failure_category,
+            failure_analysis=node.failure_analysis,
             parameter_types=json.dumps(node.parameter_types),
             type_dependencies=json.dumps(node.type_dependencies),
             call_dependencies=json.dumps(node.call_dependencies),

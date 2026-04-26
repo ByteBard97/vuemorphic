@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from oxidant.models.manifest import (
+from vuemorphic.models.manifest import (
     ConversionNode, Manifest, NodeKind, NodeStatus, TranslationTier
 )
 
@@ -129,6 +129,31 @@ def test_topological_sort_parallel_nodes():
     assert manifest.nodes["m__A"].bfs_level == 0
     assert manifest.nodes["m__B"].bfs_level == 0
     assert manifest.nodes["m__C"].bfs_level == 1
+
+
+def test_conversion_node_has_failure_fields():
+    node = ConversionNode(
+        node_id="Foo", source_file="f.jsx", line_start=1, line_end=5,
+        source_text="const Foo = () => <div/>",
+        node_kind=NodeKind.REACT_COMPONENT,
+    )
+    assert node.failure_category is None
+    assert node.failure_analysis is None
+
+
+def test_node_record_roundtrip_failure_fields(tmp_path):
+    db = tmp_path / "test.db"
+    node = ConversionNode(
+        node_id="Bar", source_file="f.jsx", line_start=1, line_end=5,
+        source_text="const Bar = () => <div/>",
+        node_kind=NodeKind.REACT_COMPONENT,
+        failure_category="info_gap",
+        failure_analysis="CATEGORY: info_gap\nMISSING: prop shape of DCFoo\nFIX: inject unconverted dep source",
+    )
+    manifest = Manifest(db, nodes={"Bar": node})
+    loaded = manifest.get_node("Bar")
+    assert loaded.failure_category == "info_gap"
+    assert "info_gap" in loaded.failure_analysis
 
 
 def test_topological_sort_cycle_gets_fallback_order():
