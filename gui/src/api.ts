@@ -1,4 +1,4 @@
-/** Typed wrappers for the oxidant FastAPI REST endpoints. */
+/** Typed wrappers for the vuemorphic FastAPI REST endpoints. */
 
 export interface StatsResponse {
   total: number

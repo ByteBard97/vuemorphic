@@ -1,4 +1,4 @@
-// myopex.scenarios.ts — Oxidant GUI
+// myopex.scenarios.ts — Vuemorphic GUI
 // Run: myopex scenarios --config myopex.scenarios.ts --out .myopex-baseline
 import type { Scenario } from 'myopex'
 

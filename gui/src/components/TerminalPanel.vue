@@ -28,7 +28,7 @@
     >
       <div v-for="(line, i) in lines" :key="i" class="mb-0.5">
         <template v-if="line.type === 'input'">
-          <span class="text-outline-variant">oxidant:~$&nbsp;</span>
+          <span class="text-outline-variant">vuemorphic:~$&nbsp;</span>
           <span class="text-zinc-300">{{ line.text }}</span>
         </template>
         <template v-else>
@@ -39,7 +39,7 @@
 
     <!-- Input row -->
     <div class="flex items-center gap-1 px-3 py-2 border-t border-outline-variant/20 shrink-0">
-      <span class="text-outline-variant text-[11px] font-mono shrink-0">oxidant:~$</span>
+      <span class="text-outline-variant text-[11px] font-mono shrink-0">vuemorphic:~$</span>
       <input
         v-model="inputText"
         type="text"

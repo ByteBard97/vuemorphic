@@ -1,7 +1,7 @@
 <template>
   <div class="flex flex-col gap-3">
     <div class="flex flex-col gap-2">
-      <Tooltip content="Path to oxidant.db — SQLite manifest database (run import-manifest to create)" position="right">
+      <Tooltip content="Path to vuemorphic.db — SQLite manifest database (run import-manifest to create)" position="right">
         <input
           v-model="store.dbPath"
           class="w-full bg-surface-container-lowest border-0 border-l-2 border-transparent focus:border-primary outline-none text-[11px] font-mono text-zinc-300 px-2 py-1.5 placeholder-zinc-600 transition-colors"

@@ -1,5 +1,5 @@
 {
-  "name": "oxidant-scripts",
+  "name": "vuemorphic-scripts",
   "private": true,
   "scripts": {
     "extract": "tsx phase_a_scripts/extract_ast.ts",

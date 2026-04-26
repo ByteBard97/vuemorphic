@@ -1,8 +1,8 @@
-// myopex.scenarios.ts — oxidant GUI audit
+// myopex.scenarios.ts — vuemorphic GUI audit
 // Run: /Users/ceres/Desktop/SignalCanvas/ui-audit/bin/myopex.sh scenarios \
 //        --url http://localhost:8000 \
 //        --config myopex.scenarios.ts \
-//        --out .myopex-oxidant
+//        --out .myopex-vuemorphic
 
 import type { Scenario } from '/Users/ceres/Desktop/SignalCanvas/ui-audit/src/scenarios'
 

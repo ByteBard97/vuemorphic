@@ -63,7 +63,7 @@
           <div class="absolute inset-0 pointer-events-none"
                style="background: radial-gradient(ellipse at 50% 55%, #ff990020 0%, transparent 70%);"></div>
           <div class="neon-logo-wrap w-36 relative z-10" :style="{ opacity: neonOpacity }">
-            <img src="/oxidant-logo.svg" alt="OXIDANT" class="w-full h-auto neon-logo" />
+            <img src="/vuemorphic-logo.svg" alt="VUEMORPHIC" class="w-full h-auto neon-logo" />
           </div>
         </div>
 
