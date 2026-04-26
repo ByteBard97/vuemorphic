@@ -290,13 +290,14 @@ def setup_worker_clones(target_path: Path, parallelism: int) -> list[Path]:
     Each worktree gets its own branch (worker-0, worker-1, ...) and a symlink to
     node_modules/ from the main clone so vue-tsc doesn't need a separate install.
 
-    Returns the list of worktree paths (one per worker).
+    Returns the list of worktree paths (one per worker, all absolute).
     """
     import subprocess as _sp
     import shutil as _sh
 
-    worktrees: list[Path] = []
+    target_path = target_path.resolve()
     main_modules = target_path / "node_modules"
+    worktrees: list[Path] = []
 
     for i in range(parallelism):
         wt_path = target_path.parent / f"{target_path.name}-worker-{i}"
@@ -332,16 +333,19 @@ def teardown_worker_clones(target_path: Path, parallelism: int) -> None:
     """Merge each worker branch back to main and remove its worktree."""
     import subprocess as _sp
 
+    target_path = target_path.resolve()
+
     for i in range(parallelism):
         wt_path = target_path.parent / f"{target_path.name}-worker-{i}"
         branch = f"worker-{i}"
         try:
             # Cherry-pick all commits from the worker branch onto main
             # Each commit is a single .vue file — no conflicts possible
-            worker_commits = _sp.run(
+            out = _sp.run(
                 ["git", "log", "--format=%H", f"HEAD..{branch}"],
                 cwd=target_path, capture_output=True, text=True, check=True,
-            ).stdout.strip().split()
+            ).stdout.strip()
+            worker_commits = [c for c in out.split("\n") if c]
             for sha in reversed(worker_commits):  # oldest first
                 _sp.run(["git", "cherry-pick", sha],
                         cwd=target_path, check=True, capture_output=True)
