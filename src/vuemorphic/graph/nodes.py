@@ -14,7 +14,7 @@ from vuemorphic.agents.context import build_prompt
 from vuemorphic.agents.invoke import invoke_claude, invoke_pi
 from vuemorphic.graph.state import VuemorphicState
 from vuemorphic.models.manifest import Manifest, NodeStatus, TranslationTier
-from vuemorphic.verification.verify import VerifyStatus, verify_snippet
+from vuemorphic.verification.verify import VerifyStatus, verify_vue_file
 
 logger = logging.getLogger(__name__)
 
@@ -166,12 +166,11 @@ def verify(state: VuemorphicState) -> dict:
             "last_error": state.get("last_error") or "Agent invocation failed (no content returned)",
         }
 
-    result = verify_snippet(
+    result = verify_vue_file(
         node_id=node.node_id,
-        snippet=vue_content,
-        ts_source=node.source_text,
-        target_path=Path(state["target_vue_path"]),
-        source_file=node.source_file,
+        vue_content=vue_content,
+        target_dir=Path(state["target_vue_path"]),
+        component_name=node.node_id,
     )
     return {
         "verify_status": result.status.value,
@@ -192,13 +191,6 @@ def route_after_verify(state: VuemorphicState) -> str:
     if state["verify_status"] == VerifyStatus.PASS:
         return "update_manifest"
 
-    if state["verify_status"] == VerifyStatus.CASCADE:
-        logger.warning(
-            "CASCADE failure for %s — unrelated file broken, retrying without penalty",
-            state.get("current_node_id"),
-        )
-        return "retry"
-
     tier = state.get("current_tier") or TranslationTier.HAIKU.value
     attempt = state.get("attempt_count", 0) + 1
     cfg_max = state.get("config", {}).get("max_attempts")
@@ -208,6 +200,14 @@ def route_after_verify(state: VuemorphicState) -> str:
         max_attempts = cfg_max.get(tier, _MAX_ATTEMPTS.get(tier, _DEFAULT_MAX_ATTEMPTS))
     else:
         max_attempts = _MAX_ATTEMPTS.get(tier, _DEFAULT_MAX_ATTEMPTS)
+
+    # CASCADE: errors are in OTHER files, not this one. Count against attempts
+    # so we don't loop forever, but log it clearly.
+    if state["verify_status"] == VerifyStatus.CASCADE:
+        logger.warning(
+            "CASCADE failure for %s (attempt %d/%d) — errors in other files",
+            state.get("current_node_id"), attempt, max_attempts,
+        )
 
     if attempt >= max_attempts:
         cfg = state.get("config", {})

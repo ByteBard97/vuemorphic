@@ -46,7 +46,7 @@ You are converting one React JSX component to a Vue 3 SFC as part of porting Cla
 - Do NOT leave any React idioms: no className=, no import React, no useState, no JSX.Element
 - Use the composition API with <script setup lang="ts"> — no Options API
 - Translate semantically faithfully — match every branch in the React source
-- Props interface comes from the skeleton — do not change it
+- Props interface comes from the skeleton — you MAY narrow `any` types to something more specific if the React source makes the shape clear (e.g. `any` → `Record<string, {{ slotIds: string[] }}>`), but do not remove or rename props
 - Use defineProps/defineEmits exactly as scaffolded in the skeleton
 - Approved packages: {packages}
 
@@ -283,7 +283,7 @@ def build_prompt(
     supervisor_hint: str | None = None,
 ) -> str:
     """Build the full conversion prompt for one manifest node."""
-    packages = ", ".join(config.get("crate_inventory", []))
+    packages = ", ".join(config.get("package_inventory", []))
     arch = config.get("architectural_decisions", {})
     arch_lines = "\n".join(f"- {k}: {v}" for k, v in arch.items()) or "None specified."
 

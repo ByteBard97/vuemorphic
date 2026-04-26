@@ -154,6 +154,7 @@ def _check_compile(vue_content: str, vue_path: Path) -> VerifyResult | None:
         proc = subprocess.run(
             ["node", "-e", script, tmp_path],
             capture_output=True, text=True, timeout=_VUE_PARSE_TIMEOUT,
+            cwd=str(vue_path.parent.parent.parent),  # corpora/claude-design-vue/
         )
         if proc.returncode != 0:
             raw_err = proc.stderr[:500] or proc.stdout[:500]
@@ -183,9 +184,10 @@ def _is_cascade_failure(error_text: str, target_vue_filename: str) -> bool:
     If every error line names a file that is NOT our target, the failure is a
     cascade from a previously-converted component, not from this one.
     """
+    # vue-tsc formats errors as: src/components/Foo.vue(23,5): error TS2345: ...
     error_lines = [
         line for line in error_text.splitlines()
-        if ": error TS" in line and ".vue:" in line
+        if ": error TS" in line and ".vue" in line
     ]
     if not error_lines:
         return False
