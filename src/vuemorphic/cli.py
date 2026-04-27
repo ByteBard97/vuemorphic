@@ -292,7 +292,6 @@ def phase_b(
     """
     import json as _json
 
-    from vuemorphic.assembly.assemble import check_and_assemble
     from vuemorphic.graph.nodes import build_context, pick_next_node
     from vuemorphic.graph.state import VuemorphicState
     from vuemorphic.models.manifest import Manifest as _Manifest
@@ -403,10 +402,6 @@ def phase_b(
         typer.echo(f"\n{len(review_queue)} nodes queued for human review → {rq_path}")
 
     manifest_final = _Manifest.load(db)
-    assembled = check_and_assemble(manifest_final, target_path)
-    if assembled:
-        typer.echo(f"Assembled {len(assembled)} module(s).")
-
     typer.echo("\nPhase B complete.")
 
 
