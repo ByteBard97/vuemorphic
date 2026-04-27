@@ -47,6 +47,11 @@ docs/diagram-research.md
 # Claude / Superpowers tooling
 .claude/
 .superpowers/
+docs/superpowers/
+
+# Local test/scenario files (contain machine-specific paths)
+myopex.scenarios.ts
+gui/myopex.scenarios.ts
 
 # Myopex UI verification output
 gui/.myopex-baseline/
