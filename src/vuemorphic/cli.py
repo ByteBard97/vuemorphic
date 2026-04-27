@@ -40,7 +40,7 @@ def phase_a(
     model       = cfg["model_tiers"]["haiku"]
     db          = db.resolve()
 
-    # A1: AST extraction (TypeScript, writes JSON manifest)
+    # A1: AST extraction (React JSX, writes JSON manifest)
     typer.echo("A1: extracting AST...")
     subprocess.run(
         ["npx", "tsx", str(_SCRIPTS_DIR / "extract_ast.ts"),
@@ -59,7 +59,7 @@ def phase_a(
     )
 
     # A3: Build Vue project scaffold + skeletons from Python contract extractor
-    # Uses the Python extractor (not TypeScript) because it produces full
+    # Uses the Python extractor because it produces full
     # ComponentContract objects with vue_imports, prop_defaults, etc. that
     # the skeleton builder needs.
     typer.echo("A3: scaffolding Vue project and building skeletons...")
@@ -410,74 +410,6 @@ def phase_b(
     typer.echo("\nPhase B complete.")
 
 
-@app.command("phase-c")
-def phase_c(
-    config: Path = typer.Option("vuemorphic.config.json", "--config", "-c"),
-    target: Path = typer.Option(
-        None, "--target",
-        help="Rust project root. Defaults to target_repo from config.",
-    ),
-) -> None:
-    """Run Phase C: auto-fix mechanical Clippy warnings, report structural/human ones.
-
-    Requires a partially or fully translated skeleton from phase-b.
-    Writes ``clippy_report.json`` to the target project root.
-    """
-    import json as _json
-    from vuemorphic.refinement.phase_c import run_phase_c
-
-    cfg = _json.loads(config.read_text())
-    target_path = target or Path(cfg["target_repo"])
-
-    typer.echo(f"Phase C: running Clippy refinement on {target_path}...")
-    report = run_phase_c(target_path.resolve())
-
-    typer.echo(f"  Auto-fixed:  {report.auto_fixed_count} warnings")
-    typer.echo(f"  Remaining:   {report.total_remaining}")
-    typer.echo(f"    Mechanical: {report.mechanical_count}")
-    typer.echo(f"    Structural: {report.structural_count}")
-    typer.echo(f"    Human:      {report.human_count}")
-    typer.echo(f"\nReport written to {target_path / 'clippy_report.json'}")
-
-
-@app.command("phase-d")
-def phase_d(
-    config: Path = typer.Option("vuemorphic.config.json", "--config", "-c"),
-    target: Path = typer.Option(
-        None, "--target",
-        help="Rust project root. Defaults to target_repo from config.",
-    ),
-    manifest: Path = typer.Option(
-        None, "--manifest",
-        help="Path to conversion_manifest.json for retranslation hints.",
-    ),
-) -> None:
-    """Run Phase D: full build verification and integration error isolation.
-
-    Runs ``cargo build --release`` on the target Rust project, parses
-    integration errors, and writes ``integration_report.json``.
-    Pass ``--manifest`` to also identify which translated files need re-translation.
-    """
-    import json as _json
-    from vuemorphic.integration.integration_debug import run_phase_d
-
-    cfg = _json.loads(config.read_text())
-    target_path = target or Path(cfg["target_repo"])
-
-    typer.echo(f"Phase D: running full build on {target_path}...")
-    report = run_phase_d(target_path.resolve(), manifest_path=manifest)
-
-    status = "PASS" if report.build_success else "FAIL"
-    typer.echo(f"  Build:       {status}")
-    typer.echo(f"  Errors:      {report.total_errors}")
-    typer.echo(f"  Files:       {len(report.files_with_errors)}")
-    if report.files_needing_retranslation:
-        typer.echo(f"  Retranslate: {len(report.files_needing_retranslation)} file(s)")
-        for f in report.files_needing_retranslation:
-            typer.echo(f"    {f}")
-    typer.echo(f"\nReport written to {target_path.resolve() / 'integration_report.json'}")
-
-
 @app.command("blocked")
 def blocked(
     db: Path = typer.Option("vuemorphic.db", "--db", help="Path to vuemorphic SQLite manifest DB."),
@@ -599,15 +531,6 @@ def serve(
     application = create_app(db_path=db_path, gui_dist=gui_dist, config_path=str(config.resolve()))
     uvicorn.run(application, host=host, port=port, reload=reload)
 
-
-@app.command()
-def translate(
-    source: str = typer.Argument(..., help="Path to a .ts file"),
-    out: str = typer.Option("output/", "--out", "-o"),
-) -> None:
-    """Translate TypeScript to Rust (Phase B — not yet implemented)."""
-    typer.echo("Phase B not yet implemented.")
-    raise typer.Exit(1)
 
 
 @app.command("reset-stuck")

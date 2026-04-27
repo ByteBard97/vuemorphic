@@ -1,76 +1,63 @@
-# oxidant
+# vuemorphic
 
-An agentic harness for automated TypeScript-to-Rust translation, powered by [LangGraph](https://github.com/langchain-ai/langgraph).
-
-**[Documentation & Architecture →](https://bytebard97.github.io/oxidant/)**
+An agentic harness for automated React→Vue 3 SFC translation, powered by [LangGraph](https://github.com/langchain-ai/langgraph) and Claude Code.
 
 ## What It Does
 
-Oxidant drives a four-phase pipeline that reads a TypeScript codebase, analyzes its structure, and produces idiomatic Rust — one function at a time, in dependency order, verified at every step.
+Vuemorphic drives a two-phase pipeline that reads a React JSX codebase, analyzes its structure, and produces idiomatic Vue 3 Single File Components — one component at a time, in dependency order, verified at every step.
+
+Built to port [Flora CAD](https://github.com/ByteBard97/flora) — a native-plants landscape design tool — from a React prototype to a Vue 3 production app.
 
 ## Pipeline
 
 | Phase | What it does |
 |-------|-------------|
-| **A — Analysis** | ts-morph AST extraction, idiom detection, topological sort, tier classification, Rust skeleton generation |
-| **B — Translation** | LangGraph loop: pick → prompt → `claude --print` → verify → retry/escalate → commit |
-| **C — Refinement** | `cargo clippy` auto-fix for mechanical warnings; structural warnings surfaced for review |
-| **D — Integration** | `cargo build --release`, error parsing, manifest intersection, retranslation hints |
+| **A — Analysis** | JSX AST extraction, idiom detection, Vue skeleton generation, SQLite import, topological sort |
+| **B — Translation** | LangGraph loop: pick → prompt → `claude --print` → verify → commit or queue for review |
 
 ```mermaid
 flowchart LR
 
     subgraph phaseA ["Phase A — Analysis"]
         direction TB
-        tsFiles[".ts source files"]
+        jsxFiles[".jsx source files"]
         astExtract["ts-morph AST<br>extraction"]
-        idiomDetect["idiom detection<br>& classification"]
+        idiomDetect["idiom detection"]
+        skeleton["Vue SFC skeleton<br>generation"]
+        dbImport["JSON → SQLite<br>manifest import"]
         topoSort["topological sort<br>by dependency"]
-        skeleton["Rust skeleton<br>generation"]
-        tsFiles --> astExtract --> idiomDetect --> topoSort --> skeleton
+        jsxFiles --> astExtract --> idiomDetect --> skeleton --> dbImport --> topoSort
     end
 
-    manifest[("conversion_manifest.json<br>+ Rust skeletons")]
+    manifest[("vuemorphic.db<br>+ Vue skeletons")]
 
     subgraph phaseB ["Phase B — Translation"]
         direction TB
-        pickNode["pick next node<br>(topo order)"]
-        buildCtx["build context<br>TS src + deps + idioms"]
-        claudeCall["claude --print<br>(haiku → sonnet → opus)"]
-        verifySnip["verify snippet<br>stub · branch · cargo check"]
+        pickNode["pick next node<br>(haiku, topo order)"]
+        buildCtx["build context<br>React src + Vue deps + idioms"]
+        claudeCall["claude --print --no-tools<br>(haiku by default)"]
+        verifySnip["verify<br>remnant · postfilter · compile · vue-tsc"]
+        gitCommit["git commit<br>feat(convert): NodeId"]
         pickNode --> buildCtx --> claudeCall --> verifySnip
-        verifySnip -->|"fail: retry / escalate"| buildCtx
+        verifySnip -->|PASS| gitCommit
+        verifySnip -->|FAIL| review["queue for review<br>---BLOCKED--- form"]
     end
 
-    snippets[/"snippets/*.rs<br>(per-node Rust)"/]
-
-    subgraph phaseC ["Phase C — Refinement"]
-        direction TB
-        clippyFix["cargo clippy --fix<br>mechanical auto-fix"]
-        clippyReview["structural warnings<br>surfaced for review"]
-        clippyFix --> clippyReview
-    end
-
-    subgraph phaseD ["Phase D — Integration"]
-        direction TB
-        cargoBuild["cargo build --release"]
-        errorParse["error parsing +<br>retranslation hints"]
-        cargoBuild --> errorParse
-    end
+    snippets[/"corpora/claude-design-vue/<br>(git repo, one commit per component)"/]
 
     phaseA ==> manifest
     manifest ==> phaseB
     phaseB ==> snippets
-    snippets ==> phaseC
-    phaseC ==> phaseD
 
     classDef io fill:#fed7aa,stroke:#c2410c,color:#374151
     classDef ai fill:#ddd6fe,stroke:#6d28d9,color:#374151
     classDef success fill:#a7f3d0,stroke:#047857,color:#374151
+    classDef review fill:#fecaca,stroke:#b91c1c,color:#374151
 
     class manifest,snippets io
     class claudeCall ai
-    class verifySnip success
+    class gitCommit success
+    class review review
 ```
 
 ## Quick Start
@@ -79,53 +66,52 @@ flowchart LR
 # Install (requires uv)
 uv sync
 
-# Full Phase A: extract AST, detect idioms, sort, classify, generate skeleton
-oxidant phase-a --heuristic-tiers
+# Phase A: extract AST, detect idioms, generate Vue skeletons, import to SQLite
+vuemorphic phase-a --heuristic-tiers
 
-# Phase B: translate all nodes in topological order
-oxidant phase-b
+# Phase B: translate all nodes in topological order (parallel, 10 workers)
+vuemorphic phase-b
 
-# Smoke test (translate first 3 nodes only)
-oxidant phase-b --max-nodes 3
+# Translate first 3 nodes only (for testing)
+vuemorphic phase-b --max-nodes 3
 
-# Phase C: Clippy refinement
-oxidant phase-c
+# Inspect blocked nodes (failed with ---BLOCKED--- form)
+vuemorphic blocked --db vuemorphic.db
 
-# Phase D: full build verification
-oxidant phase-d
+# Manually escalate a blocked node to sonnet tier
+vuemorphic escalate NodeId --db vuemorphic.db --tier sonnet
 ```
 
 ## Project Structure
 
 ```
-oxidant/
-├── src/oxidant/
-│   ├── agents/          # Prompt construction (context.py) and Claude invocation
-│   ├── analysis/        # Tier classification, skeleton generation
-│   ├── assembly/        # Module assembly from converted snippets
+vuemorphic/
+├── src/vuemorphic/
+│   ├── agents/          # Prompt assembly (context.py) and Claude invocation (invoke.py)
+│   │   └── prompt_template.py  # Conversion prompt template (triple-quoted, easy to edit)
+│   ├── analysis/        # Phase A: component_contracts.py extracts Vue-ready contracts
 │   ├── graph/           # LangGraph StateGraph (nodes.py, graph.py, state.py)
-│   ├── integration/     # Phase D — full build error isolation
-│   ├── models/          # Manifest schema (Pydantic)
-│   ├── refinement/      # Phase C — Clippy auto-fix
-│   ├── verification/    # Three-layer snippet verification
+│   ├── models/          # SQLite manifest (manifest.py, db.py) and ComponentContract
+│   ├── skeleton/        # Vue SFC skeleton builder (script, template, style sections)
+│   ├── verification/    # 5-tier Vue verification pipeline (verify.py)
 │   └── cli.py           # Typer CLI entry point
-├── phase_a_scripts/     # ts-morph TypeScript scripts (A1 AST, A2 idioms)
-├── snippets/            # Per-node .rs snippets output by Phase B
-├── docs/                # GitHub Pages site
-├── idiom_dictionary.md  # TS→Rust idiom guidance injected into prompts
-└── oxidant.config.json  # Paths, model tiers, target repo config
+├── phase_a_scripts/     # ts-morph JSX scripts (A1 AST extraction, A2 idiom detection)
+├── corpora/             # Source React codebase + output Vue project (gitignored locally)
+├── docs/                # Architecture docs and research
+├── idiom_dictionary.md  # React→Vue idiom guidance injected into prompts
+└── vuemorphic.config.json  # Paths, model tiers, parallelism config
 ```
 
 ## How Translation Works
 
-Every translatable unit in the TypeScript codebase — class, method, function, interface, enum — becomes a node in `conversion_manifest.json`. Nodes are processed in topological order: by the time a node is translated, all its dependencies are already in Rust.
+Every React component in the source codebase becomes a node in `vuemorphic.db`. Nodes are processed in topological order: by the time a component is translated, all its dependencies are already in Vue.
 
 For each node, Phase B:
-1. Assembles a prompt with the TS source, Rust skeleton signature, dependency snippets, and relevant idiom guidance
-2. Calls `claude --print` as a subprocess (subscription auth — no API key needed)
-3. Verifies the snippet: stub check → branch parity → `cargo check`
-4. Retries with error context, escalating haiku → sonnet → opus if needed
-5. Marks the node `CONVERTED` or queues it for human review
+1. Assembles a prompt with the React JSX source, Vue skeleton, converted dependency `.vue` files, and relevant idiom guidance
+2. Calls `claude --print --no-tools` as a subprocess (Claude Max subscription auth — no API key needed)
+3. Verifies the output through 5 tiers: React remnant check → postfilter → `@vue/compiler-sfc` parse → `vue-tsc --noEmit` → PASS
+4. On PASS: `git commit` to the Vue project repo with the agent's summary as the commit message
+5. On FAIL: queues for human review with the agent's structured `---BLOCKED---` diagnosis form
 
 ```mermaid
 stateDiagram-v2
@@ -133,29 +119,25 @@ stateDiagram-v2
 
     [*] --> pick_next_node
 
-    state "pick_next_node<br>find next PENDING node" as pick_next_node
-    state "build_context<br>TS src + deps + idiom hints" as build_context
-    state "invoke_agent<br>claude --print (current tier)" as invoke_agent
-    state "verify<br>stub · branch parity · cargo check" as verify
-    state "retry_node<br>same tier, +error context" as retry_node
-    state "escalate_node<br>haiku → sonnet → opus" as escalate_node
-    state "update_manifest<br>mark CONVERTED, save snippet" as update_manifest
-    state "queue_for_review<br>mark NEEDS_REVIEW" as queue_for_review
+    state "pick_next_node<br>claim next eligible node (haiku)" as pick_next_node
+    state "build_context<br>React src + Vue deps + idiom hints" as build_context
+    state "invoke_agent<br>claude --print --no-tools" as invoke_agent
+    state "verify<br>remnant · postfilter · compile · vue-tsc" as verify
+    state "requeue_node<br>cascade error in other file — retry later" as requeue_node
+    state "update_manifest<br>git commit, mark CONVERTED" as update_manifest
+    state "queue_for_review<br>BLOCKED form recorded" as queue_for_review
 
     pick_next_node --> build_context : nodes remain
-    pick_next_node --> [*] : all done
+    pick_next_node --> [*] : all done or hard-stopped
 
     build_context --> invoke_agent
     invoke_agent --> verify
 
     verify --> update_manifest : PASS
-    verify --> retry_node : fail, attempts < 3
-    verify --> escalate_node : fail, attempts = 3
-    verify --> queue_for_review : fail, already at opus
+    verify --> requeue_node : CASCADE (errors in other files)
+    verify --> queue_for_review : FAIL
 
-    retry_node --> build_context
-    escalate_node --> build_context
-
+    requeue_node --> pick_next_node
     update_manifest --> pick_next_node
     queue_for_review --> pick_next_node
 
@@ -164,8 +146,7 @@ stateDiagram-v2
     verify:::decision
     update_manifest:::success
     queue_for_review:::error
-    retry_node:::trigger
-    escalate_node:::trigger
+    requeue_node:::trigger
 
     classDef primary fill:#3b82f6,stroke:#1e3a5f,color:#ffffff
     classDef ai fill:#ddd6fe,stroke:#6d28d9,color:#374151
@@ -174,6 +155,32 @@ stateDiagram-v2
     classDef error fill:#fecaca,stroke:#b91c1c,color:#374151
     classDef trigger fill:#fed7aa,stroke:#c2410c,color:#374151
 ```
+
+## Parallel Mode
+
+Phase B runs multiple workers in parallel using git worktrees. Each worker gets an isolated copy of the Vue target project, converts and verifies independently, then cherry-picks its commits back to the main branch. No cascade cross-contamination between workers.
+
+```bash
+# Set parallelism in vuemorphic.config.json
+{ "parallelism": 10, ... }
+
+# Workers create corpora/claude-design-vue-worker-{N}/ automatically
+# and clean up after themselves
+```
+
+## Failure Diagnosis
+
+When an agent can't complete a conversion, it fills in a structured `---BLOCKED---` form:
+
+```
+---BLOCKED---
+CATEGORY: info_gap | prompt_confusion | tooling | complexity | cascade | unknown
+MISSING:  what specific information was absent
+TRIED:    what approaches were attempted
+FIX:      one concrete change to the harness or prompt that would help
+```
+
+This is stored in the DB and surfaced by `vuemorphic blocked`. Use `vuemorphic escalate` to manually promote a node to a higher model tier after reviewing the diagnosis.
 
 ## License
 
