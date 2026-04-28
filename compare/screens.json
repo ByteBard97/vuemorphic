@@ -1,0 +1,11 @@
+[
+  {"id": "v2-main",      "label": "V1 Canvas — Palette",      "component": "MfDirDV2",       "props": {"activeTab": "palette",   "layersOpen": true},  "w": 1440, "h": 900},
+  {"id": "v2-inspector", "label": "V2 Canvas — Inspector",     "component": "MfDirDV2",       "props": {"activeTab": "inspector", "layersOpen": true},  "w": 1440, "h": 900},
+  {"id": "v2-schedule",  "label": "V4 Canvas — Schedule",      "component": "MfDirDV2",       "props": {"activeTab": "schedule",  "layersOpen": true},  "w": 1440, "h": 900},
+  {"id": "v3-main",      "label": "V3 Hero canvas",            "component": "MfDirDV3",       "props": {},                                              "w": 1440, "h": 1760},
+  {"id": "mf-main-light","label": "M1 HUD canvas — light",     "component": "MfDirD",         "props": {"darkCanvas": false},                           "w": 1440, "h": 900},
+  {"id": "mf-main-dark", "label": "M2 HUD canvas — dark",      "component": "MfDirD",         "props": {"darkCanvas": true},                            "w": 1440, "h": 900},
+  {"id": "s-library",    "label": "S2 Plant library",          "component": "MfLibraryScreen","props": {},                                              "w": 1440, "h": 900},
+  {"id": "s-reports",    "label": "S3 Reports",                "component": "MfReports",      "props": {},                                              "w": 1200, "h": 820},
+  {"id": "s-setup",      "label": "S1 Site setup",             "component": "MfSiteSetup",    "props": {},                                              "w": 1200, "h": 780}
+]

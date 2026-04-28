@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>React Harness</title>
+<style>
+  html, body, #root { margin: 0; padding: 0; overflow: hidden; background: transparent; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- Load all Flora CAD source files (same as the original HTML) -->
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="primitives.jsx"></script>
+<script type="text/babel" src="direction-a.jsx"></script>
+<script type="text/babel" src="direction-b.jsx"></script>
+<script type="text/babel" src="direction-c.jsx"></script>
+<script type="text/babel" src="direction-d.jsx"></script>
+<script type="text/babel" src="midfi-tokens.jsx"></script>
+<script type="text/babel" src="plant-illustrations.jsx"></script>
+<script type="text/babel" src="midfi-site.jsx"></script>
+<script type="text/babel" src="midfi-dirD.jsx"></script>
+<script type="text/babel" src="midfi-dirD-v2.jsx"></script>
+<script type="text/babel" src="midfi-dirD-v3.jsx"></script>
+<script type="text/babel" src="midfi-screens.jsx"></script>
+
+<script type="text/babel">
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  const componentName = params.get('component');
+  const w = parseInt(params.get('w') || '1440', 10);
+  const h = parseInt(params.get('h') || '900', 10);
+  let props = {};
+  try { props = JSON.parse(params.get('props') || '{}'); } catch(e) {}
+
+  const Component = window[componentName];
+  if (!Component) {
+    document.getElementById('root').innerHTML =
+      `<div style="color:red;padding:20px;font-family:monospace">Component not found: ${componentName}</div>`;
+    return;
+  }
+
+  document.body.style.width = w + 'px';
+  document.body.style.height = h + 'px';
+
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    React.createElement('div', { style: { width: w, height: h, overflow: 'hidden', position: 'relative' } },
+      React.createElement(Component, { w, h, ...props })
+    )
+  );
+
+  // Signal to Playwright that rendering is done
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.documentElement.setAttribute('data-ready', 'true');
+  }));
+})();
+</script>
+</body>
+</html>
