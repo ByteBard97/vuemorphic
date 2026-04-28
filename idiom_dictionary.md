@@ -963,3 +963,56 @@ If iterating over a tools array where `icon` is a string from an icon object:
 ```vue
 <span v-if="tool.icon" v-html="tool.icon" />
 ```
+
+---
+
+## vue3_numeric_style_values
+
+Vue 3 does NOT auto-add "px" to numeric values in `:style` bindings.
+Always use string values for CSS length properties.
+
+```jsx
+// React — numbers work
+<div style={{ left: w - 308, top: 72 }}>
+```
+```vue
+<!-- Vue — numbers silently fail; use strings -->
+<div :style="{ left: `${props.w - 308}px`, top: '72px' }">
+<!-- OR: convert in script and use computed -->
+const leftPx = computed(() => `${props.w - 308}px`)
+<div :style="{ left: leftPx }">
+```
+
+---
+
+## vue3_props_destructuring
+
+Never destructure props in `<script setup>` if the values are used in the template.
+Destructured values lose reactivity and may be undefined at first render.
+
+```js
+// WRONG — w and h lose reactivity, may compute as NaN
+const { w, h } = props
+
+// CORRECT — access props directly
+props.w - 308  // in template expressions
+```
+
+---
+
+## svg_pattern_fill_reactive
+
+SVG `<pattern>` elements inside `<defs>` with reactive `:fill` bindings
+render incorrectly in Chrome/Playwright — the browser snapshots pattern fills
+before Vue's reactive updates propagate into `<defs>`.
+
+Use direct `:fill` attributes on the element itself instead of pattern fills:
+
+```vue
+<!-- WRONG — pattern fill with reactive binding won't render -->
+<pattern id="p"><rect :fill="paperDim"/></pattern>
+<rect fill="url(#p)"/>
+
+<!-- CORRECT — bind fill directly on the rect -->
+<rect :fill="paperDim" opacity="0.55"/>
+```
