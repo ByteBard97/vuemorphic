@@ -149,6 +149,38 @@ function extractContract(componentNode: Node, name: string): Record<string, any>
   };
 }
 
+// ── Data module discovery ─────────────────────────────────────────────────────
+
+interface DataModuleDef {
+  name: string;
+  text: string;
+  sf: SourceFile;
+}
+
+/** Minimum number of top-level keys for an object to be treated as a registry/dictionary. */
+const DATA_MODULE_MIN_KEYS = 5;
+
+function findDataModules(sf: SourceFile): DataModuleDef[] {
+  const results: DataModuleDef[] = [];
+  for (const varStmt of sf.getVariableStatements()) {
+    for (const decl of varStmt.getDeclarationList().getDeclarations()) {
+      const name = decl.getName();
+      const init = decl.getInitializer();
+      if (!init) continue;
+      // Must be a plain object literal (not a function/arrow/JSX)
+      if (init.getKind() !== SyntaxKind.ObjectLiteralExpression) continue;
+      const text = init.getFullText();
+      // Must not contain JSX
+      if (/<[A-Za-z]/.test(text)) continue;
+      // Must have enough keys to be a registry (not just a small config object)
+      const keyCount = (text.match(/^\s*["']?\w/gm) || []).length;
+      if (keyCount < DATA_MODULE_MIN_KEYS) continue;
+      results.push({ name, text: decl.getParent()?.getParent()?.getText() ?? text, sf });
+    }
+  }
+  return results;
+}
+
 // ── Component discovery ───────────────────────────────────────────────────────
 
 interface ComponentDef {
@@ -265,6 +297,32 @@ for (const sf of project.getSourceFiles()) {
     };
 
     resultNodes[name] = manifestNode;
+  }
+
+  // Data modules: large const object literals that are not components
+  for (const { name, text } of findDataModules(sf)) {
+    if (name in resultNodes) continue; // already captured as component
+    resultNodes[name] = {
+      node_id: name,
+      source_file: rel,
+      line_start: sf.getLineAndColumnAtPos(sf.getFullText().indexOf(name) || 0).line,
+      line_end: sf.getLineAndColumnAtPos(sf.getFullText().indexOf(name) || 0).line,
+      source_text: text,
+      node_kind: "data_module",
+      type_dependencies: [],
+      call_dependencies: [],
+      callers: [],
+      cyclomatic_complexity: 1,
+      idioms_needed: [],
+      topological_order: null,
+      bfs_level: null,
+      tier: null,
+      tier_reason: null,
+      status: "not_started",
+      snippet_path: null,
+      attempt_count: 0,
+      last_error: null,
+    };
   }
 }
 

@@ -291,6 +291,96 @@ def escalate_node(state: VuemorphicState) -> dict:
     return {"current_tier": next_tier, "attempt_count": 0}
 
 
+def transform_data_module(state: VuemorphicState) -> dict:
+    """Code-based transform for DATA_MODULE nodes — no agent call needed.
+
+    Strips window assignments, adds TypeScript export, infers value interface
+    from the first entry, and commits directly to the Vue project git repo.
+    """
+    import re as _re
+    import json as _json
+
+    node_id = state["current_node_id"]
+    manifest = Manifest.load(_db(state))
+    node = manifest.get_node(node_id)
+    source = node.source_text if node else ""
+
+    # Extract ONLY the target const declaration — strip everything else
+    # (helper functions, window assignments, comments, other consts)
+    const_match = _re.search(
+        rf"(const\s+{_re.escape(node_id)}\s*=\s*\{{)",
+        source,
+    )
+    if const_match:
+        # Find the matching closing brace by counting depth
+        start = const_match.start()
+        depth = 0
+        end = start
+        for i, ch in enumerate(source[start:], start):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        # Consume optional trailing semicolon
+        if end < len(source) and source[end] == ";":
+            end += 1
+        const_body = source[start:end]
+        # Replace const with export const + Record<string, any> type
+        const_body = _re.sub(
+            rf"const\s+{_re.escape(node_id)}\s*=",
+            f"export const {node_id}: Record<string, any> =",
+            const_body,
+            count=1,
+        )
+        source = const_body
+    else:
+        # Fallback: strip window assignments and add export
+        source = _re.sub(r"Object\.assign\(window\s*,[^)]+\)\s*;?\n?", "", source)
+        source = _re.sub(
+            rf"(const\s+{_re.escape(node_id)}\s*=\s*\{{)",
+            rf"export const {node_id}: Record<string, any> = {{",
+            source,
+            count=1,
+        )
+
+    # Write to Vue project src/registries/ (create dir if needed)
+    target_dir = Path(state["target_vue_path"])
+    out_dir = target_dir / "src" / "registries"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{node_id}.ts"
+    out_path.write_text(source.strip() + "\n", encoding="utf-8")
+
+    # Save snippet
+    safe_id = node_id.replace("/", "_")
+    snippet_dir = Path(state["snippets_dir"])
+    snippet_dir.mkdir(parents=True, exist_ok=True)
+    snippet_path = snippet_dir / f"{safe_id}.ts"
+    snippet_path.write_text(source.strip() + "\n", encoding="utf-8")
+
+    manifest.update_node(
+        _db(state),
+        node_id,
+        status=NodeStatus.CONVERTED,
+        snippet_path=str(snippet_path),
+        attempt_count=0,
+        summary_text=f"Data registry: {node_id} ({len(source)} chars)",
+    )
+    logger.info("DATA_MODULE: %s → %s", node_id, out_path)
+
+    # Commit to the Vue project git repo
+    _git_commit_conversion(out_path, node_id, f"Data registry ported from React source.", "data")
+
+    return {
+        "nodes_this_run": state.get("nodes_this_run", 0) + 1,
+        "current_node_id": node_id,
+        "current_tier": "data",
+        "attempt_count": 0,
+    }
+
+
 def setup_worker_clones(target_path: Path, parallelism: int) -> list[Path]:
     """Create N git worktrees of the Vue target project for isolated parallel verification.
 

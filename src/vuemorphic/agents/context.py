@@ -37,6 +37,13 @@ def _load_dep_snippets(
             continue
         seen.add(dep_id)
         dep_node = all_nodes[dep_id]
+
+        # DATA_MODULE: don't inject the full data file — just tell the agent the import path
+        if dep_node.node_kind.value == "data_module":
+            lines.append(f"<!-- -- {dep_id} (data module) -- -->")
+            lines.append(f"<!-- Import as: import {{ {dep_id} }} from '@/registries/{dep_id}' -->")
+            continue
+
         if not dep_node.snippet_path:
             continue
         p = Path(dep_node.snippet_path)

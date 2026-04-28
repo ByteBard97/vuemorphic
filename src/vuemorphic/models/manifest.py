@@ -42,6 +42,7 @@ class NodeKind(str, Enum):
     ENUM = "enum"
     TYPE_ALIAS = "type_alias"
     REACT_COMPONENT = "react_component"
+    DATA_MODULE = "data_module"
 
 
 class NodeStatus(str, Enum):

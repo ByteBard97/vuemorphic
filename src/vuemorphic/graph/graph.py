@@ -20,6 +20,7 @@ from vuemorphic.graph.nodes import (
     route_after_supervisor,
     route_after_verify,
     supervisor_node,
+    transform_data_module,
     update_manifest,
     verify,
 )
@@ -27,7 +28,20 @@ from vuemorphic.graph.state import VuemorphicState
 
 
 def _route_pick(state: VuemorphicState) -> str:
-    return "done" if state.get("done") else "continue"
+    if state.get("done"):
+        return "done"
+    # DATA_MODULE nodes are transformed in code — skip the agent pipeline
+    from vuemorphic.models.manifest import Manifest, NodeKind
+    node_id = state.get("current_node_id")
+    if node_id:
+        try:
+            manifest = Manifest.load(__import__("pathlib").Path(state["db_path"]))
+            node = manifest.get_node(node_id)
+            if node and node.node_kind == NodeKind.DATA_MODULE:
+                return "data_module"
+        except Exception:
+            pass
+    return "continue"
 
 
 def build_graph(checkpointer=None) -> object:
@@ -43,6 +57,7 @@ def build_graph(checkpointer=None) -> object:
     graph.add_node("build_context", build_context)
     graph.add_node("invoke_agent", invoke_agent)
     graph.add_node("verify", verify)
+    graph.add_node("transform_data_module", transform_data_module)
     graph.add_node("retry_node", retry_node)
     graph.add_node("requeue_node", requeue_node)
     graph.add_node("escalate_node", escalate_node)
@@ -55,8 +70,9 @@ def build_graph(checkpointer=None) -> object:
     graph.add_conditional_edges(
         "pick_next_node",
         _route_pick,
-        {"continue": "build_context", "done": END},
+        {"continue": "build_context", "data_module": "transform_data_module", "done": END},
     )
+    graph.add_edge("transform_data_module", "pick_next_node")
     graph.add_edge("build_context", "invoke_agent")
     graph.add_edge("invoke_agent", "verify")
     graph.add_conditional_edges(
