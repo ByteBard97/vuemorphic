@@ -16,7 +16,8 @@ class VuemorphicState(TypedDict):
     # ── Per-node processing (reset by pick_next_node each iteration) ──────────
     current_node_id: Optional[str]
     current_prompt: Optional[str]
-    current_vue_content: Optional[str]  # full .vue file text returned by Claude
+    current_vue_content: Optional[str]    # .vue file text, summary stripped (for verify)
+    current_raw_response: Optional[str]  # full agent response including ---SUMMARY--- (for update_manifest)
     current_tier: Optional[str]         # "haiku" | "sonnet" | "opus"
     attempt_count: int                  # retries for the current node
     last_error: Optional[str]           # error from last verification or invocation

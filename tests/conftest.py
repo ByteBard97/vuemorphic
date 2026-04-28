@@ -11,6 +11,7 @@ def base_vuemorphic_state(db_path: str, **kw) -> dict:
         "current_node_id": None,
         "current_prompt": None,
         "current_vue_content": None,
+        "current_raw_response": None,
         "current_tier": None,
         "attempt_count": 0,
         "last_error": None,

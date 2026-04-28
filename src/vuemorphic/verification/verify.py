@@ -145,28 +145,32 @@ def _check_missing_imports(vue_content: str, target_dir: Path) -> VerifyResult |
     are handled by the TS resolver and only caught at TSC tier.
     """
     import re as _re
-    # Match: import ... from './foo' or import './foo'
-    import_re = _re.compile(r'''from\s+['"](\./[^'"]+)['"]|import\s+['"](\./[^'"]+)['"]''')
-    src_dir = target_dir / "src" / "components"
-    extensions = [".ts", ".vue", ".js", ".json"]
+    # Match relative (./foo) and alias (@/foo) imports
+    import_re = _re.compile(r'''from\s+['"]([.@][^'"]+)['"]|import\s+['"]([.@][^'"]+)['"]''')
+    src_root = target_dir / "src"
+    extensions = ["", ".ts", ".vue", ".js", ".json"]
 
     for m in import_re.finditer(vue_content):
         raw = m.group(1) or m.group(2)
-        # Try each extension
-        found = False
-        for ext in [""] + extensions:
-            candidate = (src_dir / (raw + ext)).resolve()
-            if candidate.exists():
-                found = True
-                break
+
+        if raw.startswith("./"):
+            # Relative: resolve from src/components/
+            base = target_dir / "src" / "components" / raw
+        elif raw.startswith("@/"):
+            # Alias: @/ maps to src/
+            base = src_root / raw[2:]
+        else:
+            continue
+
+        found = any((base.parent / (base.name + ext)).exists() for ext in extensions)
         if not found:
             return VerifyResult(
                 VerifyStatus.POSTFILTER,
                 error=f"Import '{raw}' does not exist in the Vue project",
                 retry_context=(
-                    f"The import '{raw}' references a file that does not exist in the Vue project. "
-                    f"This is likely a data registry or helper that needs to be created separately. "
-                    f"Do not import it — inline any data you need or remove the import."
+                    f"The import '{raw}' references a file that does not exist. "
+                    f"Do not import external data registries or helpers — inline any "
+                    f"data you need directly in the component, or remove the import entirely."
                 ),
             )
     return None

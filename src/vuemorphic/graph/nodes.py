@@ -84,6 +84,7 @@ def pick_next_node(state: VuemorphicState) -> dict:
         "current_tier": tier,
         "current_prompt": None,
         "current_vue_content": None,
+        "current_raw_response": None,
         "attempt_count": 0,
         "last_error": None,
         "verify_status": None,
@@ -161,14 +162,23 @@ def invoke_agent(state: VuemorphicState) -> dict:
                 prompt_log_dir=prompt_log_dir,
                 label=label,
             )
-        # Strip ---BLOCKED--- form from the Vue content before verification.
+        # Strip ---BLOCKED--- first (it comes after ---SUMMARY--- in the output).
+        # Keep the raw response (with summary intact) for update_manifest.
+        raw_with_summary = response
         failure_analysis: str | None = None
         if _BLOCKED_DELIMITER in response:
-            vue_part, blocked_part = response.split(_BLOCKED_DELIMITER, 1)
+            pre_blocked, blocked_part = response.split(_BLOCKED_DELIMITER, 1)
             failure_analysis = blocked_part.strip() or None
-            response = vue_part
+            raw_with_summary = pre_blocked  # summary is in here; BLOCKED is dropped
+            response = pre_blocked
+
+        # Strip ---SUMMARY--- so verify only sees clean .vue content.
+        if _SUMMARY_DELIMITER in response:
+            response = response.split(_SUMMARY_DELIMITER, 1)[0]
+
         return {
             "current_vue_content": response,
+            "current_raw_response": raw_with_summary,
             "last_error": None,
             "failure_analysis": failure_analysis,
         }
@@ -392,14 +402,13 @@ def update_manifest(state: VuemorphicState) -> dict:
     in summary_text for use as dense context in caller prompts.
     """
     node_id = state["current_node_id"]
-    raw_response = state.get("current_vue_content") or ""
+    vue_content = (state.get("current_vue_content") or "").strip()
 
+    # Extract summary from the raw response (which still has ---SUMMARY--- intact)
+    raw_response = state.get("current_raw_response") or vue_content
     if _SUMMARY_DELIMITER in raw_response:
-        parts = raw_response.split(_SUMMARY_DELIMITER, 1)
-        vue_content = parts[0].strip()
-        summary = parts[1].strip()
+        summary = raw_response.split(_SUMMARY_DELIMITER, 1)[1].strip()
     else:
-        vue_content = raw_response
         summary = None
 
     manifest = Manifest.load(_db(state))
