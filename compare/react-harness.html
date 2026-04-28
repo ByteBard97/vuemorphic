@@ -13,34 +13,107 @@
 <body>
 <div id="root"></div>
 
-<!-- Load all Flora CAD source files (same as the original HTML) -->
-<script type="text/babel" src="design-canvas.jsx"></script>
-<script type="text/babel" src="primitives.jsx"></script>
-<script type="text/babel" src="direction-a.jsx"></script>
-<script type="text/babel" src="direction-b.jsx"></script>
-<script type="text/babel" src="direction-c.jsx"></script>
-<script type="text/babel" src="direction-d.jsx"></script>
-<script type="text/babel" src="midfi-tokens.jsx"></script>
-<script type="text/babel" src="plant-illustrations.jsx"></script>
-<script type="text/babel" src="midfi-site.jsx"></script>
-<script type="text/babel" src="midfi-dirD.jsx"></script>
-<script type="text/babel" src="midfi-dirD-v2.jsx"></script>
-<script type="text/babel" src="midfi-dirD-v3.jsx"></script>
-<script type="text/babel" src="midfi-screens.jsx"></script>
+<!--
+  Generalized React harness for any Claude Design project.
 
-<script type="text/babel">
-(function() {
+  The JSX files to load are discovered at runtime by fetching the project's
+  own HTML file and extracting <script type="text/babel" src="..."> tags.
+  Pass ?html=<filename> to specify which HTML file to use (default: first .html found).
+
+  URL params:
+    component  — name of the window.* component to render (required)
+    props      — JSON props object (default: {})
+    w          — width in px (default: 1440)
+    h          — height in px (default: 900)
+    html       — project HTML file to discover JSX files from (default: auto)
+-->
+<script>
+(async function() {
   const params = new URLSearchParams(window.location.search);
   const componentName = params.get('component');
   const w = parseInt(params.get('w') || '1440', 10);
   const h = parseInt(params.get('h') || '900', 10);
+  const htmlFile = params.get('html') || null;
   let props = {};
   try { props = JSON.parse(params.get('props') || '{}'); } catch(e) {}
 
+  // ── Step 1: Discover JSX files from the project HTML ─────────────────────
+  async function discoverJsxFiles() {
+    // Try the specified HTML file, then common names
+    const candidates = htmlFile
+      ? [htmlFile]
+      : ['index.html', 'wireframes.html']
+        .concat(await fetch('/').then(r => r.text())
+          .then(html => [...html.matchAll(/href="([^"]+\.html)"/g)].map(m => m[1]))
+          .catch(() => []));
+
+    for (const name of candidates) {
+      try {
+        const text = await fetch('/' + name).then(r => r.ok ? r.text() : null);
+        if (!text) continue;
+        const matches = [...text.matchAll(/<script[^>]+type=["']text\/babel["'][^>]+src=["']([^"']+\.jsx)["']/g)];
+        if (matches.length > 0) return matches.map(m => m[1]);
+      } catch {}
+    }
+    // Fallback: try to list .jsx files from the directory listing
+    try {
+      const listing = await fetch('/').then(r => r.text());
+      return [...listing.matchAll(/href="([^"]+\.jsx)"/g)].map(m => m[1]);
+    } catch {}
+    return [];
+  }
+
+  const jsxFiles = await discoverJsxFiles();
+  if (jsxFiles.length === 0) {
+    document.getElementById('root').innerHTML =
+      '<div style="color:orange;padding:20px;font-family:monospace">Warning: no JSX files discovered — check the project HTML.</div>';
+  }
+
+  // ── Step 2: Load JSX files sequentially (order matters for globals) ───────
+  async function loadBabelScript(src) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.type = 'text/babel';
+      s.src = src;
+      s.setAttribute('data-type', 'module');
+      s.onload = resolve;
+      s.onerror = () => { console.warn('Failed to load:', src); resolve(); };
+      document.head.appendChild(s);
+      // Babel standalone transforms synchronously after DOMContentLoaded,
+      // so we need to trigger it manually for dynamically added scripts.
+      if (window.Babel && window.Babel.transformScriptTags) {
+        setTimeout(() => { try { window.Babel.transformScriptTags(); } catch(e) {} resolve(); }, 100);
+      }
+    });
+  }
+
+  // Babel standalone auto-processes text/babel scripts on DOMContentLoaded,
+  // but since we're adding them dynamically we use a simpler approach:
+  // fetch each file, transpile it, and eval it.
+  async function loadAndTranspile(src) {
+    try {
+      const code = await fetch(src).then(r => r.text());
+      const result = Babel.transform(code, { presets: ['react'] });
+      eval(result.code); // eslint-disable-line no-eval
+    } catch(e) {
+      console.warn('Failed to load/transpile', src, e.message);
+    }
+  }
+
+  for (const file of jsxFiles) {
+    await loadAndTranspile(file);
+  }
+
+  // ── Step 3: Render the component ─────────────────────────────────────────
   const Component = window[componentName];
   if (!Component) {
     document.getElementById('root').innerHTML =
-      `<div style="color:red;padding:20px;font-family:monospace">Component not found: ${componentName}</div>`;
+      `<div style="color:red;padding:20px;font-family:monospace">` +
+      `Component not found: ${componentName}<br>` +
+      `Loaded files: ${jsxFiles.join(', ')}<br>` +
+      `Available globals: ${Object.keys(window).filter(k => /^[A-Z]/.test(k) && typeof window[k] === 'function').slice(0,20).join(', ')}` +
+      `</div>`;
+    document.documentElement.setAttribute('data-ready', 'true');
     return;
   }
 
@@ -53,7 +126,6 @@
     )
   );
 
-  // Signal to Playwright that rendering is done
   requestAnimationFrame(() => requestAnimationFrame(() => {
     document.documentElement.setAttribute('data-ready', 'true');
   }));

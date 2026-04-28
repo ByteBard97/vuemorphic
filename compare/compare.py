@@ -1,21 +1,27 @@
 """
 Visual comparison: React (Claude Design source) vs Vue (converted) side-by-side.
 
-For each screen in screens.json:
-  - Screenshots the React harness (static file server)
-  - Screenshots the Vue harness (Vite dev server)
+Works with ANY Claude Design project download — auto-discovers artboard definitions
+from the project's HTML file (no manual screens.json required).
+
+For each screen:
+  - Screenshots the React harness (static file server, auto-loads all .jsx files)
+  - Screenshots the Vue harness (Vite dev server, import.meta.glob auto-discovers components)
   - Pixel-diffs them with Pillow
   - Finds changed regions (connected components of diff pixels)
-  - Outputs: react.png, vue.png, diff.png, and per-region crops
-    (full size + 3x zoom) for every significant diff region
+  - Outputs: react.png, vue.png, diff.png, and per-region crops (3× zoom)
 
 Output directory: compare-output/{screen-id}/
 
 Usage:
-  uv run python compare/compare.py [--screens v2-main,mf-main-light] [--threshold 10]
-                                   [--react-dir /path/to/flora-cad-v2]
-                                   [--vue-url http://localhost:5173]
-                                   [--out compare-output]
+  # Auto-discover artboards from the project HTML:
+  uv run python compare/compare.py --react-dir /path/to/claude-design-project
+
+  # Use a curated screens.json (faster, skips discovery):
+  uv run python compare/compare.py --react-dir /path --screens-json compare/screens.json
+
+  # Specific screens only:
+  uv run python compare/compare.py --react-dir /path --screens v2-main,mf-main-light
 """
 from __future__ import annotations
 
@@ -45,6 +51,78 @@ try:
 except ImportError:
     print("Missing playwright. Run: uv pip install playwright && playwright install chromium")
     sys.exit(1)
+
+
+# ── Artboard discovery ────────────────────────────────────────────────────────
+
+import re as _re
+
+
+def discover_screens(react_dir: Path) -> list[dict]:
+    """Parse DCArtboard definitions from the Claude Design HTML file.
+
+    Works with any Claude Design project — no hardcoding needed.
+    Returns a list of screen dicts compatible with the Screen namedtuple.
+    """
+    # Find the main HTML file. Prefer a wireframes file that is NOT a print version
+    # and NOT our injected harness file.
+    html_files = [f for f in react_dir.glob("*.html")
+                  if "harness" not in f.name.lower()]
+    wireframes = [f for f in html_files
+                  if ("wireframe" in f.name.lower() or "wire" in f.name.lower())
+                  and "print" not in f.name.lower()]
+    html_file = (wireframes or html_files or [None])[0]
+    if not html_file:
+        return []
+
+    text = html_file.read_text(encoding="utf-8", errors="replace")
+    screens = []
+    seen_ids: set[str] = set()
+
+    # Match each DCArtboard — all on one line in Claude Design output
+    # Format: <DCArtboard id="x" label="y" width={N} height={M}><Component props/></DCArtboard>
+    artboard_re = _re.compile(
+        r'<DCArtboard\s+id=["\']([^"\']+)["\']'     # id
+        r'[^\n>]*width=\{(\d+)\}\s+height=\{(\d+)\}'# width, height (same line)
+        r'><([A-Z][A-Za-z0-9_]*)([^/]*)/>'          # child component + props
+    )
+
+    label_re = _re.compile(r'label=["\']([^"\']+)["\']')
+    prop_re  = _re.compile(r'(\w+)=(?:\{([^}]+)\}|["\']([^"\']*)["\'])')
+
+    for m in artboard_re.finditer(text):
+        screen_id  = m.group(1)
+        w, h       = int(m.group(2)), int(m.group(3))
+        component  = m.group(4)
+        prop_str   = m.group(5)
+
+        if screen_id in seen_ids:
+            continue
+        seen_ids.add(screen_id)
+
+        # Extract label from the full artboard tag text
+        full_tag = text[m.start():m.start() + 200]
+        label_m  = label_re.search(full_tag)
+        label    = label_m.group(1) if label_m else screen_id
+
+        # Parse JSX props: key={value} or key="value"
+        props: dict[str, object] = {}
+        for pm in prop_re.finditer(prop_str):
+            key     = pm.group(1)
+            val_raw = pm.group(2) or pm.group(3) or ""
+            if val_raw == "true":
+                props[key] = True
+            elif val_raw == "false":
+                props[key] = False
+            elif val_raw.lstrip("-").isdigit():
+                props[key] = int(val_raw)
+            else:
+                props[key] = val_raw
+
+        screens.append({"id": screen_id, "label": label, "component": component,
+                        "props": props, "w": w, "h": h})
+
+    return screens
 
 
 # ── Types ──────────────────────────────────────────────────────────────────────
@@ -265,21 +343,41 @@ def save_region_crops(
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="React vs Vue pixel comparison")
-    parser.add_argument("--screens",    help="Comma-separated screen IDs to compare (default: all)")
-    parser.add_argument("--react-dir",  default="/Users/ceres/Downloads/Flora CAD v2",
+    parser = argparse.ArgumentParser(description="React vs Vue pixel comparison — works with any Claude Design project")
+    parser.add_argument("--screens",      help="Comma-separated screen IDs to compare (default: all)")
+    parser.add_argument("--screens-json", help="Path to a curated screens.json (default: auto-discover from project HTML)")
+    parser.add_argument("--react-dir",    default="/Users/ceres/Downloads/Flora CAD v2",
                         help="Path to the Claude Design download directory")
-    parser.add_argument("--vue-url",    default="http://localhost:5173",
+    parser.add_argument("--vue-url",      default="http://localhost:5173",
                         help="Vite dev server URL for the Vue project")
-    parser.add_argument("--out",        default="compare-output",
+    parser.add_argument("--out",          default="compare-output",
                         help="Output directory")
-    parser.add_argument("--threshold",  type=int, default=20,
+    parser.add_argument("--threshold",    type=int, default=20,
                         help="Min changed pixels to report a region")
     args = parser.parse_args()
 
-    script_dir = Path(__file__).parent
-    screens_json = script_dir / "screens.json"
-    all_screens = [Screen(**s) for s in json.loads(screens_json.read_text())]
+    react_dir = Path(args.react_dir)
+
+    # ── Load or discover screen definitions ──────────────────────────────────
+    if args.screens_json:
+        all_screens = [Screen(**s) for s in json.loads(Path(args.screens_json).read_text())]
+        print(f"  Loaded {len(all_screens)} screens from {args.screens_json}")
+    else:
+        print(f"  Auto-discovering artboards from {react_dir}...")
+        discovered = discover_screens(react_dir)
+        if discovered:
+            all_screens = [Screen(**s) for s in discovered]
+            print(f"  Found {len(all_screens)} artboards")
+        else:
+            # Fall back to bundled screens.json if discovery fails
+            script_dir = Path(__file__).parent
+            fallback = script_dir / "screens.json"
+            if fallback.exists():
+                all_screens = [Screen(**s) for s in json.loads(fallback.read_text())]
+                print(f"  Discovery failed — using fallback {fallback} ({len(all_screens)} screens)")
+            else:
+                print("  No screens found. Pass --screens-json or ensure the project HTML has DCArtboard elements.")
+                return
 
     if args.screens:
         wanted = set(args.screens.split(","))
@@ -290,7 +388,7 @@ def main() -> None:
     out_root = Path(args.out)
     out_root.mkdir(parents=True, exist_ok=True)
 
-    react_dir = Path(args.react_dir)
+    script_dir = Path(__file__).parent
     harness_src = script_dir / "react-harness.html"
     import shutil
     shutil.copy(harness_src, react_dir / "react-harness.html")
