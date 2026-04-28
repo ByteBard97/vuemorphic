@@ -70,15 +70,17 @@ class Region(NamedTuple):
 
 def start_static_server(directory: Path, port: int = 7331) -> threading.Thread:
     """Serve a directory over HTTP on the given port."""
-    os.chdir(directory)
+    directory = directory.resolve()
 
     class QuietHandler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(directory), **kwargs)
         def log_message(self, *_): pass
 
     server = http.server.HTTPServer(("127.0.0.1", port), QuietHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    print(f"  React static server: http://127.0.0.1:{port}/")
+    print(f"  React static server: http://127.0.0.1:{port}/  (serving {directory})")
     return thread
 
 
@@ -299,9 +301,10 @@ def main() -> None:
     react_base = f"http://127.0.0.1:{react_port}"
     wait_for_url(f"{react_base}/react-harness.html")
 
-    # Wait for Vue dev server
-    print(f"  Waiting for Vue dev server at {args.vue_url}...")
-    wait_for_url(args.vue_url)
+    # Wait for Vue dev server (check compare.html specifically)
+    vue_check_url = args.vue_url.rstrip("/") + "/compare.html"
+    print(f"  Waiting for Vue dev server at {vue_check_url}...")
+    wait_for_url(vue_check_url)
 
     summary = []
 
