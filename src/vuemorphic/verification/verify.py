@@ -137,6 +137,41 @@ def _check_postfilter(vue_content: str) -> VerifyResult | None:
     return None
 
 
+def _check_missing_imports(vue_content: str, target_dir: Path) -> VerifyResult | None:
+    """Tier 1.6: scan import statements and verify every relative module exists on disk.
+
+    Catches missing data files (registries, constants) before vue-tsc runs.
+    Only checks relative imports (starting with '.') — node_modules and @/ aliases
+    are handled by the TS resolver and only caught at TSC tier.
+    """
+    import re as _re
+    # Match: import ... from './foo' or import './foo'
+    import_re = _re.compile(r'''from\s+['"](\./[^'"]+)['"]|import\s+['"](\./[^'"]+)['"]''')
+    src_dir = target_dir / "src" / "components"
+    extensions = [".ts", ".vue", ".js", ".json"]
+
+    for m in import_re.finditer(vue_content):
+        raw = m.group(1) or m.group(2)
+        # Try each extension
+        found = False
+        for ext in [""] + extensions:
+            candidate = (src_dir / (raw + ext)).resolve()
+            if candidate.exists():
+                found = True
+                break
+        if not found:
+            return VerifyResult(
+                VerifyStatus.POSTFILTER,
+                error=f"Import '{raw}' does not exist in the Vue project",
+                retry_context=(
+                    f"The import '{raw}' references a file that does not exist in the Vue project. "
+                    f"This is likely a data registry or helper that needs to be created separately. "
+                    f"Do not import it — inline any data you need or remove the import."
+                ),
+            )
+    return None
+
+
 # ── Tier 2: @vue/compiler-sfc structural parse ───────────────────────────────
 
 _VUE_PARSE_TIMEOUT = 10
@@ -450,6 +485,11 @@ def verify_vue_file(
     # Tier 1.5: Post-filter
     if r := _check_postfilter(vue_content):
         logger.debug("[%s] POSTFILTER: %s", node_id, r.error)
+        return r
+
+    # Tier 1.6: Missing relative imports
+    if r := _check_missing_imports(vue_content, target_dir):
+        logger.debug("[%s] POSTFILTER (missing import): %s", node_id, r.error)
         return r
 
     # Tier 2: @vue/compiler-sfc structural parse
