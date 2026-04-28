@@ -159,6 +159,14 @@ def setup_vue_project(target_dir: str, config: dict[str, Any]) -> None:
         tokens_path.write_text(tokens_ts, encoding="utf-8")
         logger.info("Wrote design-tokens.ts (%d bytes)", len(tokens_ts))
 
+    css_path = target / "src" / "design-tokens.css"
+    if not css_path.exists():
+        source_root = Path(config.get("source_repo", "."))
+        css = _extract_global_css(source_root)
+        if css:
+            css_path.write_text(css, encoding="utf-8")
+            logger.info("Wrote design-tokens.css (%d bytes) — extracted CSS class definitions from JSX style injections", len(css))
+
 
 # ── Internals ─────────────────────────────────────────────────────────────────
 
@@ -491,6 +499,74 @@ def _extract_design_tokens(source_root: Path) -> str:
         lines.append("")
 
     return "\n".join(lines) + "\n"
+
+
+def _extract_global_css(source_root: Path) -> str:
+    """Extract CSS class definitions injected via s.textContent in JSX files.
+
+    Scans all JSX files for s.textContent template literal blocks and array-join patterns,
+    resolves ${token.key} references, and returns combined CSS suitable for
+    writing to src/design-tokens.css.
+    """
+    token_values: dict[str, str] = {}
+
+    # ── Step 1: Extract token variable dicts (colors, fonts) ──────────────────
+    # Matches: const mfColors = { key: 'value', ... }
+    _TOKEN_DICT_RE = re.compile(
+        r"const\s+(\w+)\s*=\s*\{([^}]+)\}", re.DOTALL
+    )
+    _STR_VALUE_RE = re.compile(r"""['"]([^'"]+)['"]""")
+
+    jsx_files = sorted(source_root.glob("**/*.jsx"))
+    for jsx_file in jsx_files:
+        try:
+            text = jsx_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for m in _TOKEN_DICT_RE.finditer(text):
+            var_name = m.group(1)
+            body = m.group(2)
+            for line in body.splitlines():
+                # key: 'value'  or  key: "value"
+                kv = re.match(r"\s*(\w+)\s*:\s*['\"]([^'\"]+)['\"]", line)
+                if kv:
+                    token_values[f"{var_name}.{kv.group(1)}"] = kv.group(2)
+
+    def _resolve(css_text: str) -> str:
+        """Replace ${varName.key} with the resolved string value."""
+        def _sub(m: re.Match) -> str:
+            expr = m.group(1).strip()
+            return token_values.get(expr, m.group(0))
+        return re.sub(r"\$\{([^}]+)\}", _sub, css_text)
+
+    # ── Step 2: Extract CSS blocks ─────────────────────────────────────────────
+    # Pattern 1: s.textContent = `...` (template literal)
+    _TMPL_CSS_RE = re.compile(
+        r"s\.textContent\s*=\s*`(.*?)`", re.DOTALL
+    )
+    # Pattern 2: s.textContent = [...].join('\n')  (array of quoted strings)
+    _ARR_CSS_RE = re.compile(
+        r"s\.textContent\s*=\s*\[(.*?)\]\.join\(['\"]\\n['\"]\)", re.DOTALL
+    )
+
+    css_blocks: list[str] = []
+    for jsx_file in jsx_files:
+        try:
+            text = jsx_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for m in _TMPL_CSS_RE.finditer(text):
+            block = _resolve(m.group(1))
+            css_blocks.append(f"/* from {jsx_file.name} */\n{block.strip()}")
+        for m in _ARR_CSS_RE.finditer(text):
+            lines: list[str] = []
+            for quoted in re.finditer(r"""['"]([^'"\\]*)['"]""", m.group(1)):
+                lines.append(quoted.group(1))
+            if lines:
+                block = _resolve("\n".join(lines))
+                css_blocks.append(f"/* from {jsx_file.name} */\n{block.strip()}")
+
+    return "\n\n".join(css_blocks) + "\n" if css_blocks else ""
 
 
 def _build_package_json(config: dict[str, Any]) -> str:
