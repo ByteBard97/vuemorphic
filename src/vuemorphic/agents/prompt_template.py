@@ -28,6 +28,19 @@ When you use a child component (from the Converted Dependencies section), read i
 Pass EVERY prop that is NOT marked optional (no `?`) — missing a required prop is a type error.
 `children` is NEVER a prop in Vue — use `<slot />` instead.
 Style objects passed to HTML elements must be `CSSProperties`-compatible: use `:style` binding with camelCase keys and string values (e.g. `fontSize: \'12px\'` not `fontSize: 12`).
+
+## withDefaults and Optional Props
+If a prop has a default value in the React source (e.g. `{ size = 60, style = {} }`), mark it optional with `?` in the Vue Props interface:
+```ts
+// CORRECT — size and style have defaults, so they are optional at the call site
+interface FooProps {
+  species: string   // required — no default in React
+  size?: number     // optional — React had size = 60
+  style?: Record<string, any>  // optional — React had style = {}
+}
+const props = withDefaults(defineProps<FooProps>(), { size: 60, style: () => ({}) })
+```
+If you omit the `?`, TypeScript will require callers to always pass the prop even though withDefaults provides a fallback.
 '''
 
 _OUTPUT_FORMAT = '''
