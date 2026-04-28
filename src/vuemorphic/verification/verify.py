@@ -101,6 +101,16 @@ _BAIL_OUT_PATTERNS = [
 
 def _check_postfilter(vue_content: str) -> VerifyResult | None:
     """Tier 1.5: check for unfilled skeleton markers and model bail-out patterns."""
+    # Preamble check: Vue SFC must start with <template>, <script>, or <style>
+    # If the agent output prose explanation before the SFC, reject immediately.
+    first_line = vue_content.lstrip().split("\n")[0].strip()
+    if not first_line.startswith("<"):
+        return VerifyResult(
+            VerifyStatus.POSTFILTER,
+            error=f"Response does not start with a Vue SFC tag — got: {first_line[:80]!r}",
+            retry_context="Output must begin immediately with <template> — no explanation or preamble.",
+        )
+
     # Unfilled skeleton markers (model didn't fill in the section)
     if _SKELETON_MARKER in vue_content:
         count = vue_content.count(_SKELETON_MARKER)

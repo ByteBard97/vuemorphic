@@ -8,8 +8,12 @@ from __future__ import annotations
 # ── Static sections ────────────────────────────────────────────────────────────
 
 _RULES = '''
+## Output Format — READ THIS FIRST
+Your response must begin IMMEDIATELY with `<template>` — no explanation, no preamble, no "here is the component", no thinking out loud.
+The FIRST CHARACTER of your response must be `<`.
+Do NOT use file write tools. Output the Vue SFC directly as text.
+
 ## Rules
-- IMPORTANT: Output the complete .vue file content directly in your response. Do NOT use file write tools.
 - Fill in ALL TODO(vuemorphic): markers — any leftover marker is a verification failure
 - Do NOT add // TODO or // FIXME comments — post-filter will reject them
 - Do NOT leave any React idioms: no className=, no import React, no useState, no JSX.Element
@@ -18,14 +22,20 @@ _RULES = '''
 - Props interface comes from the skeleton — you MAY narrow `any` types to something more specific if the React source makes the shape clear, but do not remove or rename props
 - Use defineProps/defineEmits exactly as scaffolded in the skeleton
 - Approved packages: {packages}
+
+## Using Child Components
+When you use a child component (from the Converted Dependencies section), read its `defineProps` interface carefully.
+Pass EVERY prop that is NOT marked optional (no `?`) — missing a required prop is a type error.
+`children` is NEVER a prop in Vue — use `<slot />` instead.
+Style objects passed to HTML elements must be `CSSProperties`-compatible: use `:style` binding with camelCase keys and string values (e.g. `fontSize: \'12px\'` not `fontSize: 12`).
 '''
 
 _OUTPUT_FORMAT = '''
 Output two things separated by the literal line `---SUMMARY---`:
-1. The complete .vue file content (no markdown fences, no explanation)
+1. The complete .vue file content — start with `<template>` on the very first line, no markdown fences, no explanation before it
 2. 1-2 sentences describing what this component does (used as context for callers)
 
-Example format:
+Your response must look EXACTLY like this — `<template>` is the first line:
 <template>
   <div class="sidebar">...</div>
 </template>
