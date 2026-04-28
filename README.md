@@ -1,5 +1,9 @@
 # vuemorphic
 
+<p align="center">
+  <img src="assets/logo-wordmark.webp" alt="Vuemorphic" width="300" />
+</p>
+
 An agentic harness for automated React→Vue 3 SFC translation, powered by [LangGraph](https://github.com/langchain-ai/langgraph) and Claude Code.
 
 ## What It Does
