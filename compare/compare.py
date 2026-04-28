@@ -298,6 +298,9 @@ def screenshot_vue(page, vue_base: str, screen: Screen) -> Image.Image:
     page.goto(url)
     page.wait_for_selector("[data-ready='true']", timeout=20000)
     page.set_viewport_size({"width": screen.w, "height": screen.h})
+    # Extra delay for SVG pattern fills inside <defs> — Chrome may snapshot them
+    # before Vue's reactive bindings apply on the first paint cycle.
+    page.wait_for_timeout(300)
     raw = page.screenshot(type="png", clip={"x": 0, "y": 0, "width": screen.w, "height": screen.h})
     from io import BytesIO
     return Image.open(BytesIO(raw))

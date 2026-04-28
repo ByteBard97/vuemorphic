@@ -528,7 +528,15 @@ def _extract_global_css(source_root: Path) -> str:
             body = m.group(2)
             for line in body.splitlines():
                 # key: 'value'  or  key: "value"
-                kv = re.match(r"\s*(\w+)\s*:\s*['\"]([^'\"]+)['\"]", line)
+                # Use a lookahead-based approach to handle values with internal quotes
+                # e.g.  mono: '"JetBrains Mono", "IBM Plex Mono", monospace',
+                kv = re.match(
+                    r"\s*(\w+)\s*:\s*'((?:[^'\\]|\\.)*)'",  # single-quoted value
+                    line,
+                ) or re.match(
+                    r'\s*(\w+)\s*:\s*"((?:[^"\\]|\\.)*)"',  # double-quoted value
+                    line,
+                )
                 if kv:
                     token_values[f"{var_name}.{kv.group(1)}"] = kv.group(2)
 
