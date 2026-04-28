@@ -19,6 +19,9 @@ dependencies = [
     "sse-starlette>=1.6",
     "langgraph-checkpoint-sqlite>=0.2",
     "sqlmodel>=0.0.21",
+    "pillow>=10.0",
+    "numpy>=1.26",
+    "playwright>=1.40",
 ]
 
 [project.optional-dependencies]
