@@ -36,3 +36,4 @@ class VuemorphicState(TypedDict):
     interrupt_payload: Optional[dict]       # data surfaced to human reviewer via interrupt()
     review_mode:       str                  # "auto" | "interactive" | "supervised"
     failure_analysis:  Optional[str]        # ---BLOCKED--- form from the most recent failed attempt
+    cascade_count:     int                  # number of consecutive CASCADE requeues for current node

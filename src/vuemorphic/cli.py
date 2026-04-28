@@ -344,6 +344,7 @@ def phase_b(
         interrupt_payload=None,
         review_mode=cfg.get("review_mode", "auto"),
         failure_analysis=None,
+        cascade_count=0,
     )
 
     if dry_run:

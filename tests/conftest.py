@@ -24,6 +24,7 @@ def base_vuemorphic_state(db_path: str, **kw) -> dict:
         "interrupt_payload": None,
         "review_mode": "auto",
         "failure_analysis": None,
+        "cascade_count": 0,
     }
     defaults.update(kw)
     return defaults

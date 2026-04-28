@@ -89,6 +89,7 @@ def pick_next_node(state: VuemorphicState) -> dict:
         "last_error": None,
         "verify_status": None,
         "failure_analysis": None,
+        "cascade_count": 0,
         "done": False,
     }
 
@@ -264,10 +265,38 @@ def retry_node(state: VuemorphicState) -> dict:
     return {"attempt_count": state.get("attempt_count", 0) + 1}
 
 
+_MAX_CASCADE_REQUEUES = 3
+
+
 def requeue_node(state: VuemorphicState) -> dict:
-    """Reset a cascade-failed node to NOT_STARTED so it retries when the project is clean."""
+    """Reset a cascade-failed node to NOT_STARTED so it retries when the project is clean.
+
+    After _MAX_CASCADE_REQUEUES attempts, gives up and sends to human_review to
+    prevent an infinite loop when the blocking file never gets fixed.
+    """
     node_id = state["current_node_id"]
+    cascade_count = state.get("cascade_count", 0) + 1
     manifest = Manifest.load(_db(state))
+
+    if cascade_count > _MAX_CASCADE_REQUEUES:
+        logger.warning(
+            "CASCADE loop: %s requeued %d times — sending to human_review",
+            node_id, cascade_count,
+        )
+        manifest.update_node(
+            _db(state), node_id,
+            status=NodeStatus.HUMAN_REVIEW,
+            last_error=f"cascade loop after {cascade_count} requeues",
+        )
+        return {
+            "current_node_id": None,
+            "attempt_count": 0,
+            "cascade_count": 0,
+            "last_error": None,
+            "verify_status": None,
+            "failure_analysis": None,
+        }
+
     manifest.update_node(
         _db(state), node_id,
         status=NodeStatus.NOT_STARTED,
@@ -277,6 +306,7 @@ def requeue_node(state: VuemorphicState) -> dict:
     return {
         "current_node_id": None,
         "attempt_count": 0,
+        "cascade_count": cascade_count,
         "last_error": None,
         "verify_status": None,
         "failure_analysis": None,
