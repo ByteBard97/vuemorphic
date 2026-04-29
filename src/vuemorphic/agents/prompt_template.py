@@ -43,6 +43,12 @@ If a React component uses `{children}` or receives JSX as a prop (e.g. `d={<path
 ```
 Check the converted Ic/icon component: if it uses `<slot />` internally, callers must use slot syntax, NOT `:d="..."`.
 Style objects passed to HTML elements must be `CSSProperties`-compatible: use `:style` binding with camelCase keys and string values (e.g. `fontSize: \'12px\'` not `fontSize: 12`).
+Any computed function that returns a style object MUST be explicitly typed as `CSSProperties` to avoid TypeScript widening errors:
+```ts
+import { computed, type CSSProperties } from 'vue'
+const myStyle = computed((): CSSProperties => ({ textAlign: 'center', flex: 1 }))
+```
+Without `: CSSProperties`, TypeScript widens `'center'` to `string` and rejects it as a CSS keyword.
 
 ## withDefaults and Optional Props
 If a prop has a default value in the React source (e.g. `{ size = 60, style = {} }`), mark it optional with `?` in the Vue Props interface:
