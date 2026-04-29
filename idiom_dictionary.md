@@ -1051,3 +1051,33 @@ of the reactive value.
 For `fillOpacity` and `strokeOpacity` on normal (non-defs) SVG elements,
 Vue 3.5 also does not auto-convert camelCase to the hyphenated SVG attribute.
 Use `:style="{ fillOpacity: 0.5 }"` instead of `:fillOpacity="0.5"`.
+
+---
+
+## svg_presentation_attribute_kebab_case
+
+Vue 3.5 does NOT auto-convert camelCase SVG attributes to their hyphenated forms.
+React JSX does this automatically (e.g. `strokeWidth={x}` → `stroke-width="x"` in DOM).
+
+**Always use kebab-case for SVG presentation attributes:**
+
+```jsx
+// React — camelCase works (React auto-converts)
+<text textAnchor="middle" fontFamily={F.display} fontWeight={600}>
+<path strokeWidth="1.5" strokeLinecap="round">
+<circle strokeDasharray="4 3">
+```
+```vue
+<!-- Vue — must use kebab-case for SVG attributes -->
+<text text-anchor="middle" :font-family="F.display" font-weight="600">
+<path stroke-width="1.5" stroke-linecap="round">
+<circle stroke-dasharray="4 3">
+```
+
+**Affected attributes:** stroke-width, text-anchor, font-family, font-weight,
+font-style, font-size, letter-spacing, stroke-dasharray, stroke-linecap,
+stroke-linejoin, stroke-miterlimit, marker-end, marker-start, clip-rule,
+fill-rule, vector-effect, dominant-baseline, alignment-baseline.
+
+Note: CSS style object properties (inside `:style="{}"`) remain camelCase —
+this only applies to SVG element attributes.
