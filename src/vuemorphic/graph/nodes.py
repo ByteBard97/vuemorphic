@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 from vuemorphic.agents.context import build_prompt
-from vuemorphic.agents.invoke import invoke_claude, invoke_pi
+from vuemorphic.agents.invoke import invoke_claude, invoke_ollama, invoke_anthropic_api, invoke_pi
 from vuemorphic.graph.state import VuemorphicState
 from vuemorphic.models.manifest import Manifest, NodeStatus, TranslationTier
 from vuemorphic.verification.verify import VerifyStatus, verify_vue_file
@@ -144,7 +144,28 @@ def invoke_agent(state: VuemorphicState) -> dict:
 
     try:
         backend = state.get("config", {}).get("backend", "claude")
-        if backend == "local":
+        if backend == "ollama":
+            ollama_model = state.get("config", {}).get("ollama_model", "qwen2.5-coder:32b")
+            ollama_url = state.get("config", {}).get("ollama_base_url", "http://localhost:11434")
+            response = invoke_ollama(
+                prompt=state["current_prompt"],
+                cwd=cwd,
+                tier=tier,
+                model=ollama_model,
+                base_url=ollama_url,
+                prompt_log_dir=prompt_log_dir,
+                label=label,
+            )
+        elif backend == "anthropic-api":
+            response = invoke_anthropic_api(
+                prompt=state["current_prompt"],
+                cwd=cwd,
+                tier=tier,
+                model=model,
+                prompt_log_dir=prompt_log_dir,
+                label=label,
+            )
+        elif backend == "local":
             local_model = state.get("config", {}).get("local_model", "qwen2.5-coder:32b")
             response = invoke_pi(
                 prompt=state["current_prompt"],

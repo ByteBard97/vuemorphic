@@ -86,6 +86,43 @@ vuemorphic blocked --db vuemorphic.db
 vuemorphic escalate NodeId --db vuemorphic.db --tier sonnet
 ```
 
+## Backends
+
+Phase B supports three backends — set `backend` in `vuemorphic.config.json`:
+
+| Backend | Config | Requirement |
+|---------|--------|-------------|
+| `"claude"` (default) | `"start_tier": "haiku"` | Claude Max subscription |
+| `"anthropic-api"` | `"start_tier": "haiku"` | `ANTHROPIC_API_KEY` env var |
+| `"ollama"` | `"ollama_model": "qwen2.5-coder:32b"` | [Ollama](https://ollama.ai) running locally |
+
+### Run with Ollama (no API key needed)
+
+```bash
+# Pull a capable coding model
+ollama pull qwen2.5-coder:32b
+
+# Set backend in vuemorphic.config.json
+{
+  "backend": "ollama",
+  "ollama_model": "qwen2.5-coder:32b",
+  "ollama_base_url": "http://localhost:11434"
+}
+
+vuemorphic phase-b
+```
+
+### Run with Anthropic API key
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# Set backend in vuemorphic.config.json
+{ "backend": "anthropic-api", "start_tier": "haiku" }
+
+vuemorphic phase-b
+```
+
 ## Project Structure
 
 ```

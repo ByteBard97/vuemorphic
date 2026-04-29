@@ -145,6 +145,130 @@ def invoke_claude(
     return _sanitize_snippet(raw_response)
 
 
+def invoke_ollama(
+    prompt: str,
+    cwd: str | Path,
+    tier: str = "haiku",
+    model: str = "qwen2.5-coder:32b",
+    base_url: str = "http://localhost:11434",
+    prompt_log_dir: Path | None = None,
+    label: str = "",
+) -> str:
+    """Call the Ollama HTTP API directly — no extra CLI needed.
+
+    Args:
+        prompt: The full conversion prompt.
+        cwd: Unused but kept for signature parity with invoke_claude.
+        tier: Translation tier — controls the timeout.
+        model: Ollama model tag (e.g. "qwen2.5-coder:32b", "llama3.3:70b").
+        base_url: Ollama server base URL (default: http://localhost:11434).
+        prompt_log_dir: If set, write prompt and response to files here.
+        label: File name prefix for prompt logs.
+
+    Returns:
+        The assistant's response text (sanitized).
+
+    Raises:
+        RuntimeError: Ollama returns an error or empty content.
+        httpx.TimeoutException: Call exceeds the tier-specific timeout.
+    """
+    import httpx
+
+    timeout = _LOCAL_TIMEOUT_BY_TIER.get(tier, _DEFAULT_TIMEOUT)
+
+    if prompt_log_dir and label:
+        log_dir = Path(prompt_log_dir)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        safe_label = label.replace("/", "_").replace(":", "_")
+        (log_dir / f"{safe_label}_prompt.txt").write_text(prompt)
+
+    logger.debug("invoke_ollama model=%s tier=%s prompt[:200]=%r", model, tier, prompt[:_MAX_PROMPT_LOG_CHARS])
+
+    url = base_url.rstrip("/") + "/api/chat"
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": False,
+    }
+
+    try:
+        r = httpx.post(url, json=payload, timeout=timeout)
+        r.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(f"Ollama HTTP error {exc.response.status_code}: {exc.response.text[:400]}") from exc
+
+    data = r.json()
+    raw_response = data.get("message", {}).get("content", "")
+    if not raw_response:
+        raise RuntimeError(f"Ollama returned empty content: {data}")
+
+    if prompt_log_dir and label:
+        log_dir = Path(prompt_log_dir)
+        safe_label = label.replace("/", "_").replace(":", "_")
+        (log_dir / f"{safe_label}_response.txt").write_text(raw_response)
+
+    return _sanitize_snippet(raw_response)
+
+
+def invoke_anthropic_api(
+    prompt: str,
+    cwd: str | Path,
+    tier: str = "haiku",
+    model: str = "claude-haiku-4-5-20251001",
+    prompt_log_dir: Path | None = None,
+    label: str = "",
+) -> str:
+    """Call the Anthropic API directly using ANTHROPIC_API_KEY.
+
+    Use this instead of invoke_claude() when you want pay-as-you-go billing
+    instead of a Claude Max subscription.
+
+    Args:
+        prompt: The full conversion prompt.
+        cwd: Unused but kept for signature parity.
+        tier: Translation tier — controls the timeout.
+        model: Anthropic model ID.
+        prompt_log_dir: If set, write prompt and response to files here.
+        label: File name prefix for prompt logs.
+
+    Returns:
+        The assistant's response text (sanitized).
+
+    Raises:
+        RuntimeError: API returns an error or empty content.
+    """
+    import anthropic
+
+    timeout = _TIMEOUT_BY_TIER.get(tier, _DEFAULT_TIMEOUT)
+
+    if prompt_log_dir and label:
+        log_dir = Path(prompt_log_dir)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        safe_label = label.replace("/", "_").replace(":", "_")
+        (log_dir / f"{safe_label}_prompt.txt").write_text(prompt)
+
+    logger.debug("invoke_anthropic_api model=%s tier=%s prompt[:200]=%r", model, tier, prompt[:_MAX_PROMPT_LOG_CHARS])
+
+    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
+    message = client.messages.create(
+        model=model,
+        max_tokens=8192,
+        messages=[{"role": "user", "content": prompt}],
+        timeout=timeout,
+    )
+
+    raw_response = message.content[0].text if message.content else ""
+    if not raw_response:
+        raise RuntimeError("Anthropic API returned empty content")
+
+    if prompt_log_dir and label:
+        log_dir = Path(prompt_log_dir)
+        safe_label = label.replace("/", "_").replace(":", "_")
+        (log_dir / f"{safe_label}_response.txt").write_text(raw_response)
+
+    return _sanitize_snippet(raw_response)
+
+
 def invoke_pi(
     prompt: str,
     cwd: str | Path,
