@@ -1016,3 +1016,38 @@ Use direct `:fill` attributes on the element itself instead of pattern fills:
 <!-- CORRECT — bind fill directly on the rect -->
 <rect :fill="paperDim" opacity="0.55"/>
 ```
+
+---
+
+## svg_defs_reactive_bindings
+
+Chrome snapshots SVG `<defs>` elements (patterns, gradients) at first paint,
+before Vue's reactive bindings propagate into them. Any `:fill`, `:stroke`,
+`:stop-color`, `:stop-opacity`, `:fillOpacity`, `:strokeOpacity` binding
+INSIDE a `<defs>` element will silently use the SVG default (black) instead
+of the reactive value.
+
+**Always use `:style` bindings instead of SVG attribute bindings inside `<defs>`:**
+
+```vue
+<!-- WRONG — reactive attribute inside <defs> renders as default black -->
+<linearGradient id="foo">
+  <stop :stopColor="mfColors.ochre" :stopOpacity="0.15"/>
+</linearGradient>
+
+<pattern id="bar">
+  <rect :fill="paperDim"/>
+</pattern>
+
+<!-- CORRECT — use :style which goes through CSS (not SVG attribute path) -->
+<linearGradient id="foo">
+  <stop :style="{ stopColor: mfColors.ochre, stopOpacity: 0.15 }"/>
+</linearGradient>
+
+<!-- For patterns, avoid reactive bindings entirely — use direct colors instead: -->
+<rect :fill="paperDim"/>  <!-- outside <defs>, works fine -->
+```
+
+For `fillOpacity` and `strokeOpacity` on normal (non-defs) SVG elements,
+Vue 3.5 also does not auto-convert camelCase to the hyphenated SVG attribute.
+Use `:style="{ fillOpacity: 0.5 }"` instead of `:fillOpacity="0.5"`.
