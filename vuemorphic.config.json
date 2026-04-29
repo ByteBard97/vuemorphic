@@ -2,9 +2,9 @@
   "source_language": "react",
   "target_language": "vue",
   "tsconfig": "phase_a_scripts/tsconfig.json",
-  "source_repo": "corpora/claude-design-react",
-  "target_repo": "corpora/claude-design-vue",
-  "package_inventory": ["vue", "typescript", "pinia", "@vueuse/core", "lucide-vue-next", "shadcn-vue"],
+  "source_repo": "corpora/signal-canvas-react",
+  "target_repo": "corpora/signal-canvas-vue",
+  "package_inventory": ["vue", "typescript", "pinia", "@vueuse/core", "lucide-vue-next"],
   "architectural_decisions": {
     "state_management": "pinia",
     "component_api": "composition",

@@ -224,7 +224,7 @@ class Manifest:
                 self._bulk_insert_nodes(self._engine, nodes)
 
     def _bulk_insert_nodes(self, engine: object, nodes: dict) -> None:
-        """Insert a dict of ConversionNode objects into the DB."""
+        """Upsert a dict of ConversionNode objects into the DB (idempotent)."""
         from vuemorphic.models.db import NodeRecord
         import json as _json
 
@@ -257,7 +257,7 @@ class Manifest:
                     failure_category=node.failure_category,
                     failure_analysis=node.failure_analysis,
                 )
-                session.add(row)
+                session.merge(row)  # upsert — safe to re-run Phase A on existing DB
             session.commit()
 
     # ── Public interface (identical to old JSON Manifest) ──────────────────

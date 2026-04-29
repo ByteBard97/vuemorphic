@@ -142,12 +142,17 @@ def _import_json_to_db(manifest_json: Path, db: Path) -> None:
                 session.add(NodeRecord.from_conversion_node(node))
                 inserted += 1
             else:
-                new_row = NodeRecord.from_conversion_node(node)
-                new_row.status = row.status
-                new_row.snippet_path = row.snippet_path
-                new_row.attempt_count = row.attempt_count
-                new_row.last_error = row.last_error
-                session.add(new_row)
+                # Preserve Phase B runtime fields; refresh everything else
+                row.source_file = node.source_file
+                row.line_start = node.line_start
+                row.line_end = node.line_end
+                row.source_text = node.source_text
+                row.node_kind = node.node_kind.value
+                row.cyclomatic_complexity = node.cyclomatic_complexity
+                row.idioms_needed = _json.dumps(node.idioms_needed)
+                row.call_dependencies = _json.dumps(node.call_dependencies)
+                row.callers = _json.dumps(node.callers)
+                # status, snippet_path, attempt_count, last_error preserved as-is
                 updated += 1
         session.commit()
 
