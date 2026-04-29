@@ -23,10 +23,24 @@ Do NOT use file write tools. Output the Vue SFC directly as text.
 - Use defineProps/defineEmits exactly as scaffolded in the skeleton
 - Approved packages: {packages}
 
+## Template Binding Rules
+NEVER use a bare double-quote `"` character inside a Vue template attribute binding expression.
+Vue template attributes use `"` as their delimiter, so any `"` inside the binding ends the attribute and causes a parse error.
+- WRONG: `:style="{ fontFamily: '\"Geist Mono\"' }"` — the `"` ends the attribute
+- CORRECT: `:style="{ fontFamily: 'Geist Mono' }"` — CSS inline style accepts unquoted multi-word names
+- CORRECT: compute the string in `<script setup>` first, then reference the variable: `const fontFamily = 'Geist Mono'`
+
 ## Using Child Components
 When you use a child component (from the Converted Dependencies section), read its `defineProps` interface carefully.
 Pass EVERY prop that is NOT marked optional (no `?`) — missing a required prop is a type error.
 `children` is NEVER a prop in Vue — use `<slot />` instead.
+If a React component uses `{children}` or receives JSX as a prop (e.g. `d={<path .../>}`), the Vue version uses slots:
+```vue
+<!-- React: <Ic d={<><circle/><path/></>}/> -->
+<!-- Vue: -->
+<Ic :size="13"><circle/><path/></Ic>
+```
+Check the converted Ic/icon component: if it uses `<slot />` internally, callers must use slot syntax, NOT `:d="..."`.
 Style objects passed to HTML elements must be `CSSProperties`-compatible: use `:style` binding with camelCase keys and string values (e.g. `fontSize: \'12px\'` not `fontSize: 12`).
 
 ## withDefaults and Optional Props
@@ -128,7 +142,7 @@ def render_prompt(
     retry_section: str,
     unfurl_section: str,
 ) -> str:
-    rules = _RULES.format(packages=packages)
+    rules = _RULES.replace("{packages}", packages)
     return CONVERSION_PROMPT.format(
         node_id=node_id,
         jsx_source_path=jsx_source_path,
