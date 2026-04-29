@@ -212,6 +212,28 @@ def _load_idiom_entries(idioms: list[str], workspace: Path, references_design_to
     return "\n\n".join(entries)
 
 
+def _build_registries_section(manifest: Manifest) -> str:
+    """List all DATA_MODULE nodes so the agent always knows the correct import paths.
+
+    Agents hallucinate import paths (e.g. '@/constants/wireframe') when the
+    constant they need (e.g. WF) isn't in their direct call_dependencies.
+    This section appears unconditionally so the agent can always find the
+    correct path without guessing.
+    """
+    from vuemorphic.models.manifest import NodeKind
+    lines: list[str] = []
+    for node_id, node in manifest.nodes.items():
+        if node.node_kind == NodeKind.DATA_MODULE:
+            lines.append(f"- `import {{ {node_id} }} from '@/registries/{node_id}'`")
+    if not lines:
+        return ""
+    return (
+        "\n## Available Registries (DATA_MODULE constants)\n"
+        "If the React source uses any of these global constants, import them from:\n"
+        + "\n".join(lines) + "\n"
+    )
+
+
 def _read_skeleton(node_id: str, target_vue_path: Path) -> str:
     """Read the Phase A.5 skeleton .vue file for this component."""
     vue_file = target_vue_path / "src" / "components" / f"{node_id}.vue"
@@ -241,10 +263,11 @@ def build_prompt(
 
     # Level 1: direct dep snippets
     dep_text, direct_dep_ids = _load_dep_snippets(node, manifest, snippets_dir)
+    registries_section = _build_registries_section(manifest)
     deps_section = (
-        f"\n## Converted Dependencies\n```vue\n{dep_text}\n```\n"
+        f"\n## Converted Dependencies\n```vue\n{dep_text}\n```\n{registries_section}"
         if dep_text
-        else ""
+        else registries_section
     )
 
     # Level 2: transitive (2-hop) dep snippets, truncated
