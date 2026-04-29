@@ -27,8 +27,9 @@ Do NOT use file write tools. Output the Vue SFC directly as text.
 NEVER use a bare double-quote `"` character inside a Vue template attribute binding expression.
 Vue template attributes use `"` as their delimiter, so any `"` inside the binding ends the attribute and causes a parse error.
 - WRONG: `:style="{ fontFamily: '\"Geist Mono\"' }"` — the `"` ends the attribute
-- CORRECT: `:style="{ fontFamily: 'Geist Mono' }"` — CSS inline style accepts unquoted multi-word names
-- CORRECT: compute the string in `<script setup>` first, then reference the variable: `const fontFamily = 'Geist Mono'`
+- WRONG: `:style="{ gridTemplateAreas: \`\"area1\" \"area2\"\` }"` — same problem
+- CORRECT: use single quotes in CSS values: `gridTemplateAreas: "'area1' 'area2'"` (CSS accepts single-quoted area names)
+- CORRECT: compute the string in `<script setup>` first: `const areas = '"area1" "area2"'` then reference variable in template
 
 ## Using Child Components
 When you use a child component (from the Converted Dependencies section), read its `defineProps` interface carefully.
